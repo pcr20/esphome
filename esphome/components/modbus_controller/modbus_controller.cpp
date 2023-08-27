@@ -117,6 +117,7 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
         number_to_payload(sixteen_bit_response, value, server_register->value_type);
         current_address += server_register->register_count;
         found = true;
+        break;
       }
     }
 
