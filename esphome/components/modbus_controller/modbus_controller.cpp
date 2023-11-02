@@ -58,8 +58,18 @@ bool ModbusController::send_next_command_() {
 
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
+    vector<uint8_t>::const_iterator it;
+    char hex_chars[50];
+    int n=0;
+    for (it = data.begin(); it != data.end(); it++) {
+        snprintf(hex_chars+n,3 "02%x ", *it);
+        n=n+3;
+        if n>=50 break;
+    }
+    hex_chars[50]='\0';
+    ESP_LOGV(TAG, "data: %s", hex_chars);
   auto &current_command = this->command_queue_.front();
-  ESP_LOGV(TAG, "current_command 0x%x", current_command);
+
   if (current_command != nullptr) {
     if (this->module_offline_) {
       ESP_LOGW(TAG, "Modbus device=%d back online", this->address_);
