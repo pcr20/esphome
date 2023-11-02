@@ -111,9 +111,11 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     }
   }
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset, this->rx_buffer_.begin() + data_offset + data_len);
+  ESP_LOGV(TAG, "Data b 0X%x e 0X%x", this->rx_buffer_.begin() + data_offset, this->rx_buffer_.begin() + data_offset + data_len);
   bool found = false;
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
+      ESP_LOGV(TAG, "Matched addr 0X%x", byte, address);
       // Is it an error response?
       if ((function_code & 0x80) == 0x80) {
         ESP_LOGD(TAG, "Modbus error function code: 0x%X exception: %d", function_code, raw[2]);
