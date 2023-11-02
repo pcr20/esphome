@@ -115,7 +115,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   bool found = false;
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
-      ESP_LOGV(TAG, "Matched addr 0X%x", byte, address);
+      ESP_LOGV(TAG, "Matched addr 0X%x", address);
       // Is it an error response?
       if ((function_code & 0x80) == 0x80) {
         ESP_LOGD(TAG, "Modbus error function code: 0x%X exception: %d", function_code, raw[2]);
