@@ -305,7 +305,7 @@ class ModbusCommandItem {
   std::function<void(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data)>
       on_data_func;
   std::vector<uint8_t> payload = {};
-  bool send();
+  bool send(bool disable_send=false);
   // wrong commands (esp. custom commands) can block the send queue
   // limit the number of repeats
   uint8_t send_countdown{MAX_SEND_REPEATS};
@@ -436,7 +436,9 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   size_t get_command_queue_length() { return command_queue_.size(); }
   /// get if the module is offline, didn't respond the last command
   bool get_module_offline() { return module_offline_; }
-
+  /// called by esphome generated code to set the command_throttle period
+  void set_disable_send(bool disable_send) { this->disable_send_ = disable_send; }
+  
  protected:
   /// parse sensormap_ and create range of sequential addresses
   size_t create_register_ranges_();
@@ -466,6 +468,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   bool module_offline_;
   /// how many updates to skip if module is offline
   uint16_t offline_skip_updates_;
+  
+  bool disable_send_;
 };
 
 /** Convert vector<uint8_t> response payload to float.

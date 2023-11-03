@@ -17,6 +17,7 @@ from .const import (
     CONF_RESPONSE_SIZE,
     CONF_SKIP_UPDATES,
     CONF_VALUE_TYPE,
+    CONF_DISABLE_SEND,
 )
 
 CODEOWNERS = ["@martgras"]
@@ -106,6 +107,7 @@ CONFIG_SCHEMA = cv.All(
                 CONF_COMMAND_THROTTLE, default="0ms"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_OFFLINE_SKIP_UPDATES, default=0): cv.positive_int,
+            cv.Optional(CONF_DISABLE_SEND, default=False): cv.boolean,
         }
     )
     .extend(cv.polling_component_schema("60s"))
@@ -210,6 +212,7 @@ async def add_modbus_base_properties(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add(var.set_command_throttle(config[CONF_COMMAND_THROTTLE]))
+    cg.add(var.set_disable_send(config[CONF_DISABLE_SEND]))
     cg.add(var.set_offline_skip_updates(config[CONF_OFFLINE_SKIP_UPDATES]))
     await register_modbus_device(var, config)
 

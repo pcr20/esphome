@@ -25,8 +25,8 @@ class Modbus : public uart::UARTDevice, public Component {
   float get_setup_priority() const override;
 
   void send(uint8_t address, uint8_t function_code, uint16_t start_address, uint16_t number_of_entities,
-            uint8_t payload_len = 0, const uint8_t *payload = nullptr);
-  void send_raw(const std::vector<uint8_t> &payload);
+            uint8_t payload_len = 0, const uint8_t *payload = nullptr,bool disable_send=false);
+  void send_raw(const std::vector<uint8_t> &payload,bool disable_send=false);
   void set_flow_control_pin(GPIOPin *flow_control_pin) { this->flow_control_pin_ = flow_control_pin; }
   uint8_t waiting_for_response{0};
   void set_send_wait_time(uint16_t time_in_ms) { send_wait_time_ = time_in_ms; }
@@ -51,10 +51,10 @@ class ModbusDevice {
   virtual void on_modbus_data(const std::vector<uint8_t> &data) = 0;
   virtual void on_modbus_error(uint8_t function_code, uint8_t exception_code) {}
   void send(uint8_t function, uint16_t start_address, uint16_t number_of_entities, uint8_t payload_len = 0,
-            const uint8_t *payload = nullptr) {
-    this->parent_->send(this->address_, function, start_address, number_of_entities, payload_len, payload);
+            const uint8_t *payload = nullptr,bool disable_send=false) {
+    this->parent_->send(this->address_, function, start_address, number_of_entities, payload_len, payload,disable_send);
   }
-  void send_raw(const std::vector<uint8_t> &payload) { this->parent_->send_raw(payload); }
+  void send_raw(const std::vector<uint8_t> &payload,bool disable_send=false) { this->parent_->send_raw(payload,disable_send); }
   // If more than one device is connected block sending a new command before a response is received
   bool waiting_for_response() { return parent_->waiting_for_response != 0; }
 

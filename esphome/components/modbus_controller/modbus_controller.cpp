@@ -45,7 +45,7 @@ bool ModbusController::send_next_command_() {
     } else {
       ESP_LOGV(TAG, "Sending next modbus command to device %d register 0x%02X count %d", this->address_,
                command->register_address, command->register_count);
-      command->send();
+      command->send(this->disable_send_);
       this->last_command_timestamp_ = millis();
       // remove from queue if no handler is defined
       if (!command->on_data_func) {
@@ -58,16 +58,11 @@ bool ModbusController::send_next_command_() {
 
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
-    std::vector<uint8_t>::const_iterator it;
-    char hex_chars[50];
-    int n=0;
-    for (it = data.begin(); it != data.end(); it++) {
-        snprintf(hex_chars+n,3, "02%x ", *it);
-        n=n+3;
-        if (n>=50) break;
-    }
-    hex_chars[50]='\0';
-    ESP_LOGV(TAG, "data: %s", hex_chars);
+
+
+  update_range_(register_ranges_.front());
+  send_next_command_();
+  
   auto &current_command = this->command_queue_.front();
 
   if (current_command != nullptr) {
@@ -194,7 +189,7 @@ void ModbusController::update() {
 
   for (auto &r : this->register_ranges_) {
     ESP_LOGVV(TAG, "Updating range 0x%X", r.start_address);
-    update_range_(r);
+    if (not disable_send_) update_range_(r);
   }
 }
 
@@ -307,7 +302,7 @@ size_t ModbusController::create_register_ranges_() {
 
 void ModbusController::dump_config() {
   ESP_LOGCONFIG(TAG, "ModbusController:");
-  ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
+  ESP_LOGCONFIG(TAG, "  Address: 0x%02X disable_send_ %d", this->address_,this->disable_send_);
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGCONFIG(TAG, "sensormap");
   for (auto &it : sensorset_) {
@@ -510,12 +505,12 @@ ModbusCommandItem ModbusCommandItem::create_custom_command(
   return cmd;
 }
 
-bool ModbusCommandItem::send() {
+bool ModbusCommandItem::send(bool disable_send) {
   if (this->function_code != ModbusFunctionCode::CUSTOM) {
     modbusdevice->send(uint8_t(this->function_code), this->register_address, this->register_count, this->payload.size(),
                        this->payload.empty() ? nullptr : &this->payload[0]);
   } else {
-    modbusdevice->send_raw(this->payload);
+    modbusdevice->send_raw(this->payload,disable_send);
   }
   ESP_LOGV(TAG, "Command sent %d 0x%X %d", uint8_t(this->function_code), this->register_address, this->register_count);
   send_countdown--;
