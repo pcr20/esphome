@@ -113,39 +113,43 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
            this->address_, function_code, start_address, number_of_registers);
 
   std::vector<uint16_t> sixteen_bit_response;
-  for (uint16_t current_address = start_address; current_address < start_address + number_of_registers;) {
     bool found = false;
+    ServerRegister *server_register_out; //maintain scope outside of loop
+    uint16_t start_offset=0;
     for (auto *server_register : this->serverregisters_) {
-      if (server_register->start_address == current_address) {
-        float value = server_register->lamda();
-
-        ESP_LOGD(TAG, "Matched register. Start address: 0x%02X. Value type: %zu. Register count: %u. Value: %0.1f.",
-                 server_register->start_address, static_cast<uint8_t>(server_register->value_type),
-                 server_register->register_count, value);
-        number_to_payload(sixteen_bit_response, value, server_register->value_type);
-        current_address += server_register->register_count;
+      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
+      if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
+        ESP_LOGD(TAG, "Matched registers. Start address: 0x%02X. End address: 0x%02X Request Start address: 0x%02X. End address: 0x%02X",
+                 server_register->start_address,server_register->start_address+server_register->register_count-1,
+                 start_address,start_address+number_of_registers-1);
         found = true;
+        server_register_out=server_register;
+        start_offset= start_address-server_register->start_address;
         break;
       }
-    }
-
+    
     if (!found) {
-      ESP_LOGW(TAG, "Could not match any register to address %02X. Sending exception response.", current_address);
+      ESP_LOGW(TAG, "Could not match any register to address range %02X to %02X. Sending exception response.", start_address,start_address+number_of_registers-1);
       std::vector<uint8_t> error_response;
       error_response.push_back(this->address_);
-      error_response.push_back(0x81);
+      error_response.push_back(0x80+function_code);
       error_response.push_back(0x02);
       this->send_raw(error_response);
       return;
     }
   }
 
+  //call lambda
+  float value = server_register_out->lamda();
+    
   std::vector<uint8_t> response;
-  for (auto v : sixteen_bit_response) {
-    auto decoded_value = decode_value(v);
+  for (int i=0;i<number_of_registers;i++)
+  {
+    auto decoded_value = decode_value(server_register_out->registers_[i+start_offset]);
     response.push_back(decoded_value[0]);
     response.push_back(decoded_value[1]);
   }
+  
 
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
 }
@@ -158,6 +162,8 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
            "0x%X.",
            this->address_, function_code, start_address, number_of_registers);
     bool found = false;
+    ServerRegister *server_register_out; //maintain scope outside of loop
+    uint16_t start_offset=0;
     for (auto *server_register : this->serverregisters_) {
       ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
       if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
@@ -165,6 +171,8 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
                  server_register->start_address,server_register->start_address+server_register->register_count-1,
                  start_address,start_address+number_of_registers-1);
         found = true;
+        server_register_out=server_register;
+        start_offset= start_address-server_register->start_address;
         break;
       }
     
@@ -172,13 +180,31 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
       ESP_LOGW(TAG, "Could not match any register to address range %02X to %02X. Sending exception response.", start_address,start_address+number_of_registers-1);
       std::vector<uint8_t> error_response;
       error_response.push_back(this->address_);
-      error_response.push_back(0x81);
+      error_response.push_back(0x80+function_code); //0x80 + 0x10
       error_response.push_back(0x02);
       this->send_raw(error_response);
       return;
     }
   }
-
+  //call lambda
+    float value = server_register_out->lamda();
+ 
+  for (int i=0;i<number_of_registers;i++)
+  {
+    server_register_out->registers_[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+  }
+  
+  char hexdump[100];
+  int i=0;
+   for (auto reg : server_register_out->registers_)
+  {
+    snprintf(hexdump+i,100-i,"%04X ",reg);
+    i=i+5;
+  }
+  hexdump[i]='\0';
+  ESP_LOGV(TAG, "Reg: %s",hexdump);
+  
+  
   this->send(function_code, start_address, number_of_registers, 0, nullptr); //response size not needed
 }
 

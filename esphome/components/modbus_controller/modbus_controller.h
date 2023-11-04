@@ -255,16 +255,18 @@ class SensorItem {
 class ServerRegister {
  public:
   ServerRegister(uint16_t start_address, SensorValueType value_type, uint8_t register_count,
-                 std::function<float()> lamda) {
+                 std::function<float()> lambda) {
     this->start_address = start_address;
     this->value_type = value_type;
     this->register_count = register_count;
-    this->lamda = std::move(lamda);
+    this->lamda = std::move(lambda);
+    this->registers_.resize(register_count,0);
   }
   uint16_t start_address;
   SensorValueType value_type;
   uint8_t register_count;
   std::function<float()> lamda;
+  std::vector<uint16_t> registers_;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
