@@ -139,8 +139,7 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     }
   }
 
-  //call lambda
-  float value = server_register_out->lamda();
+
     
   std::vector<uint8_t> response;
   for (int i=0;i<number_of_registers;i++)
@@ -150,7 +149,8 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     response.push_back(decoded_value[1]);
   }
   
-
+  //call lambda
+  float value = server_register_out->lamda(server_register_out->registers_);
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
 }
 
@@ -186,8 +186,7 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
       return;
     }
   }
-  //call lambda
-    float value = server_register_out->lamda();
+
  
   for (int i=0;i<number_of_registers;i++)
   {
@@ -204,7 +203,8 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
   hexdump[i]='\0';
   ESP_LOGV(TAG, "Reg: %s",hexdump);
   
-  
+  //call lambda
+  float value = server_register_out->lamda(server_register_out->registers_);  
   this->send(function_code, start_address, number_of_registers, 0, nullptr); //response size not needed
 }
 

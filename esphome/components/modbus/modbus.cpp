@@ -155,7 +155,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
             crc_ok=false;
         }
     }
-    ESP_LOGV(TAG, "Found function 0x%02x is_response %d crc_ok %d runs %d", function_code, is_response,crc_ok,runs);
+ 
 
     // wait until the buffer has filled up
     
@@ -167,7 +167,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     if (at == data_offset + data_len)
       return true;
 
-
+    ESP_LOGV(TAG, "Found function 0x%02x is_response %d crc_ok %d runs %d", function_code, is_response,crc_ok,runs);
    
       
     // Byte data_offset+len+1: CRC_HI (over all bytes)
@@ -183,7 +183,6 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     }
   }
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset, this->rx_buffer_.begin() + data_offset + data_len);
-  ESP_LOGV(TAG, "Data o %d l %d",data_offset,data_len);
   bool found = false;
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
