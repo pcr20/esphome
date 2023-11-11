@@ -56,7 +56,7 @@ bool ModbusController::send_next_command_() {
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 
-  if (not disable_send_)
+  if (disable_send_)
   {
   update_range_(register_ranges_.front());
   send_next_command_();
