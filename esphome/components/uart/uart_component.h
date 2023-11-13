@@ -52,6 +52,7 @@ class UARTComponent {
   void set_tx_pin(InternalGPIOPin *tx_pin) { this->tx_pin_ = tx_pin; }
   void set_rx_pin(InternalGPIOPin *rx_pin) { this->rx_pin_ = rx_pin; }
   void set_rx_buffer_size(size_t rx_buffer_size) { this->rx_buffer_size_ = rx_buffer_size; }
+  void set_tx_buffer_size(size_t tx_buffer_size) { this->tx_buffer_size_ = tx_buffer_size; }
   size_t get_rx_buffer_size() { return this->rx_buffer_size_; }
 
   void set_stop_bits(uint8_t stop_bits) { this->stop_bits_ = stop_bits; }
@@ -76,6 +77,7 @@ class UARTComponent {
   InternalGPIOPin *tx_pin_;
   InternalGPIOPin *rx_pin_;
   size_t rx_buffer_size_;
+  size_t tx_buffer_size_;
   uint32_t baud_rate_;
   uint8_t stop_bits_;
   uint8_t data_bits_;
