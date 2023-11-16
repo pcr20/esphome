@@ -260,13 +260,13 @@ class ServerRegister {
     this->value_type = value_type;
     this->register_count = register_count;
     this->lamda = std::move(lambda);
-    this->registers_.resize(register_count,0);
   }
   uint16_t start_address;
   SensorValueType value_type;
   uint8_t register_count;
+  int register_id;
   std::function<float(std::vector<uint16_t> & data)> lamda;
-  std::vector<uint16_t> registers_;
+  std::vector<uint16_t> * glo_registers_;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range

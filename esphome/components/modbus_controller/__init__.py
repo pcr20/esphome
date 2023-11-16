@@ -2,6 +2,7 @@ import binascii
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import modbus
+
 from esphome.const import CONF_ADDRESS, CONF_ID, CONF_NAME, CONF_LAMBDA, CONF_OFFSET
 from esphome.cpp_helpers import logging
 from .const import (
@@ -105,7 +106,7 @@ ModbusServerRegisterSchema = cv.Schema(
         cv.GenerateID(): cv.declare_id(ServerRegister),
         cv.Required(CONF_START_ADDRESS): cv.positive_int,
         cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
-        cv.Required(CONF_LAMBDA): cv.returning_lambda,
+        cv.Optional(CONF_LAMBDA): cv.returning_lambda,
         cv.Optional(CONF_REGISTER_COUNT):  cv.positive_int,        
     }
 )

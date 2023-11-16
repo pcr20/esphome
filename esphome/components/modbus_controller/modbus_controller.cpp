@@ -157,13 +157,13 @@ t3=micros();
   std::vector<uint8_t> response;
   for (int i=0;i<number_of_registers;i++)
   {
-    auto decoded_value = decode_value(server_register_out->registers_[i+start_offset]);
+    auto decoded_value = decode_value((*server_register_out->glo_registers_)[i+start_offset]);
     response.push_back(decoded_value[0]);
     response.push_back(decoded_value[1]);
   }
   t4=micros();
   //call lambda
-  float value = server_register_out->lamda(server_register_out->registers_);
+  float value = server_register_out->lamda(*(server_register_out->glo_registers_));
 t5=micros();  
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
   t6=micros();  
@@ -217,14 +217,14 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
  
   for (int i=0;i<number_of_registers;i++)
   {
-    server_register_out->registers_[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+    (*server_register_out->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
   }
   
   std::string hexdump;
     char hexdump_[6];
 
     int i=0;
-   for (auto reg : server_register_out->registers_)
+   for (auto reg : (*server_register_out->glo_registers_))
   {
     i++;
     if (i>48) break;
@@ -241,7 +241,7 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
 
    t4=micros();  
   //call lambda
-  float value = server_register_out->lamda(server_register_out->registers_);  
+  float value = server_register_out->lamda(*server_register_out->glo_registers_);  
    t5=micros();  
   this->send(function_code, start_address, number_of_registers, 0, nullptr); //response size not needed
  t6=micros();  
