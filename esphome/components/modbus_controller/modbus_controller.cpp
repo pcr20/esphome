@@ -53,14 +53,25 @@ bool ModbusController::send_next_command_() {
   return (!command_queue_.empty());
 }
 
+void ModbusController::on_modbus_data(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) {
+  if (disable_send_)
+  {
+      update_range_(register_ranges_.front());
+      send_next_command_();
+      //update sensor metadata
+   for (auto *sensor : this->sensorset_) {
+    //sensor->parse_and_publish(data);
+        sensor->function_code_in=function_code;
+        sensor->start_reg_in=start_address;
+        sensor->num_reg_in=number_of_registers;
+    }
+  }
+  on_modbus_data(data);
+  }
+  
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 
-  if (disable_send_)
-  {
-  update_range_(register_ranges_.front());
-  send_next_command_();
-  }
   
   auto &current_command = this->command_queue_.front();
   if (current_command != nullptr) {

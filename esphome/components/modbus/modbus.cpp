@@ -180,7 +180,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         ESP_LOGW(TAG, "Unknown function code %02X", function_code);
         return false;
     }
-    ESP_LOGD(TAG, "Found function 0x%02x frame_type %d", function_code, frame_type);
+
     uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
     uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
 
@@ -199,7 +199,8 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);  
 
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
-
+    ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
+      
   bool found = false;
 
   for (auto *device : this->devices_) {
@@ -227,7 +228,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
       }
       else 
       {
-          device->on_modbus_data(data);
+          device->on_modbus_data(function_code,start_reg,num_regs,data);
       }
       found = true;
     }
