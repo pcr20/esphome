@@ -246,11 +246,15 @@ class SensorItem {
   uint32_t bitmask;
   uint8_t offset;
   uint8_t register_count;
+  uint8_t address_in;  
+  bool is_response_in;  
   uint8_t function_code_in;
   uint16_t start_reg_in;
   uint16_t num_reg_in;
+  uint16_t crc_in;  
   uint8_t response_bytes{0};
   uint16_t skip_updates;
+  
   std::vector<uint8_t> custom_data{};
   bool force_new_range{false};
 };
@@ -443,7 +447,7 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void add_server_register(ServerRegister *serverregister) { serverregisters_.push_back(serverregister); }
   /// called when a modbus response was parsed without errors
   void on_modbus_data(const std::vector<uint8_t> &data);
-  void on_modbus_data(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) override;
+  void on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
   void on_modbus_error(uint8_t function_code, uint8_t exception_code) override;
   /// called when a modbus request (function code 3 or 4) was parsed without errors

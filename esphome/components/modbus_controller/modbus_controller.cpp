@@ -53,7 +53,7 @@ bool ModbusController::send_next_command_() {
   return (!command_queue_.empty());
 }
 
-void ModbusController::on_modbus_data(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) {
+void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) {
   if (disable_send_)
   {
       update_range_(register_ranges_.front());
@@ -61,6 +61,9 @@ void ModbusController::on_modbus_data(uint8_t function_code, uint16_t start_addr
       //update sensor metadata
    for (auto *sensor : this->sensorset_) {
     //sensor->parse_and_publish(data);
+        sensor->is_response_in=is_response;
+        sensor->address_in=address;
+        sensor->crc_in=crc;
         sensor->function_code_in=function_code;
         sensor->start_reg_in=start_address;
         sensor->num_reg_in=number_of_registers;
@@ -98,7 +101,9 @@ void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 // Dispatch the response to the registered handler
 void ModbusController::process_modbus_data_(const ModbusCommandItem *response) {
   ESP_LOGV(TAG, "Process modbus response for address 0x%X size: %zu", response->register_address,
-           response->payload.size());
+           response->payload.size());  
+  //***call*** the lambda registered by create_read_command or create_custom_command
+  // the function registered is always ModbusController::on_register_data
   response->on_data_func(response->register_type, response->register_address, response->payload);
 }
 
@@ -279,12 +284,15 @@ void ModbusController::on_register_data(ModbusRegisterType register_type, uint16
                                         const std::vector<uint8_t> &data) {
   ESP_LOGV(TAG, "data for register address : 0x%X : ", start_address);
 
-  // loop through all sensors with the same start address
+  // loop through all sensors with the same start address and register_type
   auto sensors = find_sensors_(register_type, start_address);
   for (auto *sensor : sensors) {
+  //lambda function for sensors called here
     sensor->parse_and_publish(data);
   }
 }
+
+
 
 void ModbusController::queue_command(const ModbusCommandItem &command) {
   // check if this command is already qeued.

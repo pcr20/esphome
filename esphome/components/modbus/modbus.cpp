@@ -66,7 +66,6 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 
  
 
-  enum frame_type_enum { error_80, response_custom, response_0304, command_0304, response_05060F10, command_05060F10,no_frame};
   frame_type_enum frame_type=no_frame;
   unsigned int data_len[6];
   unsigned int data_offset[6];
@@ -89,7 +88,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   is_response[response_0304]=true;
   data_len[command_05060F10]=raw[6];
   data_offset[command_05060F10]=7;
-  is_response[command_05060F10]=true;
+  is_response[command_05060F10]=false;
 
   
     // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
@@ -194,7 +193,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     }
     
 
-  
+
   uint16_t start_reg= uint16_t(raw[3]) | (uint16_t(raw[2]) << 8);
   uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);  
 
@@ -228,7 +227,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
       }
       else 
       {
-          device->on_modbus_data(function_code,start_reg,num_regs,data);
+          device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
       }
       found = true;
     }
