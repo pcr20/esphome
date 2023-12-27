@@ -126,6 +126,7 @@ void ESP32ArduinoUARTComponent::load_settings(bool dump_config) {
   if (rx_pin_ != nullptr && rx_pin_->is_inverted())
     invert = true;
   this->hw_serial_->setRxBufferSize(this->rx_buffer_size_);
+  this->hw_serial_->setTxBufferSize(this->tx_buffer_size_);
   this->hw_serial_->begin(this->baud_rate_, get_config(), rx, tx, invert);
   if (dump_config) {
     ESP_LOGCONFIG(TAG, "UART %u was reloaded.", this->number_);
@@ -138,7 +139,7 @@ void ESP32ArduinoUARTComponent::dump_config() {
   LOG_PIN("  TX Pin: ", tx_pin_);
   LOG_PIN("  RX Pin: ", rx_pin_);
   if (this->rx_pin_ != nullptr) {
-    ESP_LOGCONFIG(TAG, "  RX Buffer Size: %u", this->rx_buffer_size_);
+    ESP_LOGCONFIG(TAG, "  RX Buffer Size: %u TX Buffer Size: %u ", this->rx_buffer_size_,this->tx_buffer_size_);
   }
   ESP_LOGCONFIG(TAG, "  Baud Rate: %u baud", this->baud_rate_);
   ESP_LOGCONFIG(TAG, "  Data Bits: %u", this->data_bits_);

@@ -23,19 +23,30 @@ void Modbus::loop() {
   if (now - this->last_send_ > send_wait_time_) {
     waiting_for_response = 0;
   }
-
-  while (this->available()) {
+ uint32_t start,end,us_max,start_t,end_t;
+ us_max=0;
+ bool result;
+ start_t=micros();
+ this->last_modbus_byte_=now;
+  while (this->available()  && ((now - this->last_modbus_byte_)<10)) {
     uint8_t byte;
     this->read_byte(&byte);
-    if (this->parse_modbus_byte_(byte)) {
+    start=micros();
+    result=this->parse_modbus_byte_(byte);
+    end=micros();
+    if ((end-start)>us_max) us_max=(end-start);
+    if (result) {
       this->last_modbus_byte_ = now;
     } else {
       this->rx_buffer_.clear();
     }
   }
+   end_t=micros();
+  if ((us_max>0)||(end_t-start_t>1000)) ESP_LOGD(TAG, "max %d total %d", us_max,end_t-start_t);
 }
 
 bool Modbus::parse_modbus_byte_(uint8_t byte) {
+  static const size_t MAX_MESSAGE_SIZE = 512;
   size_t at = this->rx_buffer_.size();
   this->rx_buffer_.push_back(byte);
   const uint8_t *raw = &this->rx_buffer_[0];
@@ -47,73 +58,151 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   uint8_t function_code = raw[1];
   // Byte 2: Size (with modbus rtu function code 4/3)
   // See also https://en.wikipedia.org/wiki/Modbus
-  if (at == 2)
+  if (at <= 2)
     return true;
 
-  uint8_t data_len = raw[2];
-  uint8_t data_offset = 3;
+//modbus response: [addr,f_code,bytes, data[bytes],...,CRC1,CRC2] total length = bytes + 5
+//modbus command: [addr,f_code,reg_addr1,reg_addr2,num_reg1,num_reg2,CRC1,CRC2] total length = 3 + 5
 
-  // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
-  if (((function_code >= 65) && (function_code <= 72)) || ((function_code >= 100) && (function_code <= 110))) {
-    // Handle user-defined function, since we don't know how big this ought to be,
-    // ideally we should delegate the entire length detection to whatever handler is
-    // installed, but wait, there is the CRC, and if we get a hit there is a good
-    // chance that this is a complete message ... admittedly there is a small chance is
-    // isn't but that is quite small given the purpose of the CRC in the first place
 
-    // Fewer than 2 bytes can't calc CRC
-    if (at < 2)
-      return true;
 
-    data_len = at - 2;
-    data_offset = 1;
+  frame_type_enum frame_type=no_frame;
+  unsigned int data_len[6];
+  unsigned int data_offset[6];
+  bool is_response[6];
+  data_len[response_custom]=at - 2;
+  data_offset[response_custom]=1;
+  is_response[response_custom]=true;
+  data_len[error_80]=1;
+  data_offset[error_80]=2;
+  is_response[error_80]=true;
+  data_len[command_0304]=4;
+  data_offset[command_0304]=2;
+  is_response[command_0304]=false;
+  data_len[response_05060F10]=4;
+  data_offset[response_05060F10]=2;
+  is_response[response_05060F10]=true;
+  data_len[response_0304]=raw[2];
+  data_offset[response_0304]=3;
+  is_response[response_0304]=true;
+  data_len[command_05060F10]=raw[6];
+  data_offset[command_05060F10]=7;
+  is_response[command_05060F10]=false;
 
-    uint16_t computed_crc = crc16(raw, data_offset + data_len);
-    uint16_t remote_crc = uint16_t(raw[data_offset + data_len]) | (uint16_t(raw[data_offset + data_len + 1]) << 8);
 
-    if (computed_crc != remote_crc)
-      return true;
+    // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
+    if (((function_code >= 65) && (function_code <= 72)) || ((function_code >= 100) && (function_code <= 110))) {
+      // Handle user-defined function, since we don't know how big this ought to be,
+      // ideally we should delegate the entire length detection to whatever handler is
+      // installed, but wait, there is the CRC, and if we get a hit there is a good
+      // chance that this is a complete message ... admittedly there is a small chance is
+      // isn't but that is quite small given the purpose of the CRC in the first place
 
-    ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
+      // Fewer than 2 bytes can't calc CRC
+      if (at < 2)
+        return true;
+      frame_type = response_custom;
+      uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
+      uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
 
-  } else {
-    // the response for write command mirrors the requests and data startes at offset 2 instead of 3 for read commands
-    if (function_code == 0x5 || function_code == 0x06 || function_code == 0xF || function_code == 0x10) {
-      data_offset = 2;
-      data_len = 4;
-    }
+      if (computed_crc != remote_crc)
+        return true;
 
+      ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
+
+    } else  if ((function_code & 0x80) == 0x80)
+    {
     // Error ( msb indicates error )
     // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc
-    if ((function_code & 0x80) == 0x80) {
-      data_offset = 2;
-      data_len = 1;
+      frame_type = error_80;
     }
+    else if ((function_code == 0x3 || function_code == 0x4))
+    {
+        //check for command
+        if ((at > data_offset[command_0304]+data_len[command_0304])) //read commands are 8 bytes
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[command_0304] + data_len[command_0304]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[command_0304] + data_len[command_0304]]) | (uint16_t(raw[data_offset[command_0304] + data_len[command_0304] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = command_0304;
+            }
+        }
+        //check for response
+        if ((at > data_offset[response_0304]+data_len[response_0304]) && (frame_type==no_frame))
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[response_0304] + data_len[response_0304]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[response_0304] + data_len[response_0304]]) | (uint16_t(raw[data_offset[response_0304] + data_len[response_0304] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = response_0304;
+            }
+        }
 
-    // Byte data_offset..data_offset+data_len-1: Data
-    if (at < data_offset + data_len)
-      return true;
+        if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
+        {
+                return true; //not enough bytes
+        }
+    }
+    else if ((function_code == 0x5 || function_code == 0x06 || function_code == 0xF || function_code == 0x10))
+    {
+        //check for command
+        if (at > data_offset[command_05060F10]+data_len[command_05060F10])
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[command_05060F10] + data_len[command_05060F10]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[command_05060F10] + data_len[command_05060F10]]) | (uint16_t(raw[data_offset[command_05060F10] + data_len[command_05060F10] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = command_05060F10;
+            }
+        }
+        //check for response
+        if ((at > data_offset[response_05060F10]+data_len[response_05060F10]) && (frame_type==no_frame)) //write responses are 8 bytes)
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[response_05060F10] + data_len[response_05060F10]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[response_05060F10] + data_len[response_05060F10]]) | (uint16_t(raw[data_offset[response_05060F10] + data_len[response_05060F10] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = response_05060F10;
+            }
+        }
 
-    // Byte 3+data_len: CRC_LO (over all bytes)
-    if (at == data_offset + data_len)
-      return true;
+        if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
+        {
+                return true; //not enough bytes
+        }
 
-    // Byte data_offset+len+1: CRC_HI (over all bytes)
-    uint16_t computed_crc = crc16(raw, data_offset + data_len);
-    uint16_t remote_crc = uint16_t(raw[data_offset + data_len]) | (uint16_t(raw[data_offset + data_len + 1]) << 8);
-    if (computed_crc != remote_crc) {
-      if (this->disable_crc_) {
-        ESP_LOGD(TAG, "Modbus CRC Check failed, but ignored! %02X!=%02X", computed_crc, remote_crc);
-      } else {
-        ESP_LOGW(TAG, "Modbus CRC Check failed! %02X!=%02X", computed_crc, remote_crc);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Unknown function code %02X", function_code);
         return false;
-      }
     }
-  }
-  std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset, this->rx_buffer_.begin() + data_offset + data_len);
+
+    uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
+    uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
+
+    if (computed_crc != remote_crc) {
+          if (this->disable_crc_) {
+            ESP_LOGD(TAG, "Modbus CRC Check failed, but ignored! %02X!=%02X", computed_crc, remote_crc);
+          } else {
+            ESP_LOGW(TAG, "Modbus CRC Check failed! %02X!=%02X", computed_crc, remote_crc);
+            return false;
+          }
+    }
+
+
+  uint16_t start_reg= uint16_t(raw[3]) | (uint16_t(raw[2]) << 8);
+  uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);
+
+  std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
+    ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
+
   bool found = false;
+
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
+      ESP_LOGV(TAG, "Matched addr 0X%x", address);
       // Is it an error response?
       if ((function_code & 0x80) == 0x80) {
         ESP_LOGD(TAG, "Modbus error function code: 0x%X exception: %d", function_code, raw[2]);
@@ -123,8 +212,20 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           // Ignore modbus exception not related to a pending command
           ESP_LOGD(TAG, "Ignoring Modbus error - not expecting a response");
         }
-      } else {
-        device->on_modbus_data(data);
+      } else if (this->role == ModbusRole::SERVER)
+      {
+          if (function_code == 0x3 || function_code == 0x4) {
+              device->on_modbus_read_registers(function_code,start_reg,num_regs);
+              //void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers)
+          }
+          else if (function_code == 0x10)
+          {
+              device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
+          }
+      }
+      else
+      {
+          device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
       }
       found = true;
     }
@@ -151,7 +252,7 @@ float Modbus::get_setup_priority() const {
 }
 
 void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address, uint16_t number_of_entities,
-                  uint8_t payload_len, const uint8_t *payload) {
+                  uint8_t payload_len, const uint8_t *payload,bool disable_send) {
   static const size_t MAX_VALUES = 128;
 
   // Only check max number of registers for standard function codes
@@ -164,16 +265,28 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
   std::vector<uint8_t> data;
   data.push_back(address);
   data.push_back(function_code);
-  data.push_back(start_address >> 8);
-  data.push_back(start_address >> 0);
-  if (function_code != 0x5 && function_code != 0x6) {
-    data.push_back(number_of_entities >> 8);
-    data.push_back(number_of_entities >> 0);
+  if (this->role == ModbusRole::CLIENT) {
+    data.push_back(start_address >> 8);
+    data.push_back(start_address >> 0);
+    if (function_code != 0x5 && function_code != 0x6) {
+      data.push_back(number_of_entities >> 8);
+      data.push_back(number_of_entities >> 0);
+    }
+  }
+  else
+  { //this->role == ModbusRole::SERVER
+    if (function_code == 0x10)
+    {
+    data.push_back(start_address >> 8);
+    data.push_back(start_address >> 0);
+      data.push_back(number_of_entities >> 8);
+      data.push_back(number_of_entities >> 0);
+    }
   }
 
   if (payload != nullptr) {
-    if (function_code == 0xF || function_code == 0x10) {  // Write multiple
-      data.push_back(payload_len);                        // Byte count is required for write
+    if (this->role == ModbusRole::SERVER || function_code == 0xF || function_code == 0x10) {  // Write multiple
+      data.push_back(payload_len);  // Byte count is required for write
     } else {
       payload_len = 2;  // Write single register or coil
     }
@@ -190,7 +303,7 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     this->flow_control_pin_->digital_write(true);
 
   this->write_array(data);
-  this->flush();
+  //this->flush();
 
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
@@ -201,7 +314,7 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
 
 // Helper function for lambdas
 // Send raw command. Except CRC everything must be contained in payload
-void Modbus::send_raw(const std::vector<uint8_t> &payload) {
+void Modbus::send_raw(const std::vector<uint8_t> &payload,bool disable_send) {
   if (payload.empty()) {
     return;
   }
@@ -210,10 +323,13 @@ void Modbus::send_raw(const std::vector<uint8_t> &payload) {
     this->flow_control_pin_->digital_write(true);
 
   auto crc = crc16(payload.data(), payload.size());
+  if (not disable_send)
+  {
   this->write_array(payload);
   this->write_byte(crc & 0xFF);
   this->write_byte((crc >> 8) & 0xFF);
-  this->flush();
+  //this->flush();
+  }
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
   waiting_for_response = payload[0];

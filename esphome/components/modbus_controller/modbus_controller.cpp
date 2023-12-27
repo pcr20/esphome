@@ -7,10 +7,7 @@ namespace modbus_controller {
 
 static const char *const TAG = "modbus_controller";
 
-void ModbusController::setup() {
-  // Modbus::setup();
-  this->create_register_ranges_();
-}
+void ModbusController::setup() { this->create_register_ranges_(); }
 
 /*
  To work with the existing modbus class and avoid polling for responses a command queue is used.
@@ -45,7 +42,7 @@ bool ModbusController::send_next_command_() {
     } else {
       ESP_LOGV(TAG, "Sending next modbus command to device %d register 0x%02X count %d", this->address_,
                command->register_address, command->register_count);
-      command->send();
+      command->send(this->disable_send_);
       this->last_command_timestamp_ = millis();
       // remove from queue if no handler is defined
       if (!command->on_data_func) {
@@ -56,8 +53,29 @@ bool ModbusController::send_next_command_() {
   return (!command_queue_.empty());
 }
 
+void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) {
+  if (disable_send_)
+  {
+      update_range_(register_ranges_.front());
+      send_next_command_();
+      //update sensor metadata
+   for (auto *sensor : this->sensorset_) {
+    //sensor->parse_and_publish(data);
+        sensor->is_response_in=is_response;
+        sensor->address_in=address;
+        sensor->crc_in=crc;
+        sensor->function_code_in=function_code;
+        sensor->start_reg_in=start_address;
+        sensor->num_reg_in=number_of_registers;
+    }
+  }
+  on_modbus_data(data);
+  }
+
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
+
+
   auto &current_command = this->command_queue_.front();
   if (current_command != nullptr) {
     if (this->module_offline_) {
@@ -84,6 +102,8 @@ void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 void ModbusController::process_modbus_data_(const ModbusCommandItem *response) {
   ESP_LOGV(TAG, "Process modbus response for address 0x%X size: %zu", response->register_address,
            response->payload.size());
+  //***call*** the lambda registered by create_read_command or create_custom_command
+  // the function registered is always ModbusController::on_register_data
   response->on_data_func(response->register_type, response->register_address, response->payload);
 }
 
@@ -101,6 +121,150 @@ void ModbusController::on_modbus_error(uint8_t function_code, uint8_t exception_
     command_queue_.pop_front();
   }
 }
+
+void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t start_address,
+                                                uint16_t number_of_registers) {
+  uint32_t t0=0xFFFFFFFF;
+  uint32_t t1=0xFFFFFFFF;
+  uint32_t t2=0xFFFFFFFF;
+  uint32_t t3=0xFFFFFFFF;
+  uint32_t t4=0xFFFFFFFF;
+  uint32_t t5=0xFFFFFFFF;
+  uint32_t t6=0xFFFFFFFF;
+  uint32_t t7=0xFFFFFFFF;
+  t0=micros();
+  ESP_LOGD(TAG,
+           "Received read holding/input registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of registers: "
+           "0x%X.",
+           this->address_, function_code, start_address, number_of_registers);
+
+  std::vector<uint16_t> sixteen_bit_response;
+    bool found = false;
+    ServerRegister *server_register_out=nullptr; //maintain scope outside of loop
+    uint16_t start_offset=0;
+   t1=micros();
+
+    for (auto *server_register : this->serverregisters_) {
+      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
+      if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
+        ESP_LOGD(TAG, "Matched registers. Start address: 0x%02X. End address: 0x%02X Request Start address: 0x%02X. End address: 0x%02X",
+                 server_register->start_address,server_register->start_address+server_register->register_count-1,
+                 start_address,start_address+number_of_registers-1);
+        found = true;
+        server_register_out=server_register;
+        start_offset= start_address-server_register->start_address;
+        break;
+      }
+    t2=micros();
+    }
+    if (!found) {
+      ESP_LOGW(TAG, "Could not match any register to address range %02X to %02X. Sending exception response.", start_address,start_address+number_of_registers-1);
+      std::vector<uint8_t> error_response;
+      error_response.push_back(this->address_);
+      error_response.push_back(0x80+function_code);
+      error_response.push_back(0x02);
+      this->send_raw(error_response);
+      return;
+    }
+
+t3=micros();
+
+
+  std::vector<uint8_t> response;
+  for (int i=0;i<number_of_registers;i++)
+  {
+    auto decoded_value = decode_value((*server_register_out->glo_registers_)[i+start_offset]);
+    response.push_back(decoded_value[0]);
+    response.push_back(decoded_value[1]);
+  }
+  t4=micros();
+  //call lambda
+  float value = server_register_out->lamda(*(server_register_out->glo_registers_));
+t5=micros();
+  this->send(function_code, start_address, number_of_registers, response.size(), response.data());
+  t6=micros();
+  ESP_LOGD(TAG, "t6 %d t5 %d t4 %d t3 %d t2 %d t1 %d",t6-t0,t5-t0,t4-t0,t3-t0,t2-t0,t1-t0);
+}
+
+
+void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t start_address,
+                                                uint16_t number_of_registers,const std::vector<uint8_t> &data) {
+    uint32_t t0=0xFFFFFFFF;
+  uint32_t t1=0xFFFFFFFF;
+  uint32_t t2=0xFFFFFFFF;
+  uint32_t t3=0xFFFFFFFF;
+  uint32_t t4=0xFFFFFFFF;
+  uint32_t t5=0xFFFFFFFF;
+  uint32_t t6=0xFFFFFFFF;
+  uint32_t t7=0xFFFFFFFF;
+  t0=micros();
+  ESP_LOGD(TAG,
+           "Received write multiple registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of registers: "
+           "0x%X.",
+           this->address_, function_code, start_address, number_of_registers);
+    bool found = false;
+    ServerRegister *server_register_out=nullptr; //maintain scope outside of loop
+    uint16_t start_offset=0;
+    t1=micros();
+    for (auto *server_register : this->serverregisters_) {
+      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
+      if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
+        ESP_LOGD(TAG, "Matched registers. Start address: 0x%02X. End address: 0x%02X Request Start address: 0x%02X. End address: 0x%02X",
+                 server_register->start_address,server_register->start_address+server_register->register_count-1,
+                 start_address,start_address+number_of_registers-1);
+        found = true;
+        server_register_out=server_register;
+        start_offset= start_address-server_register->start_address;
+        break;
+      }
+ t2=micros();
+    }
+    if (!found) {
+      ESP_LOGW(TAG, "Could not match any register to address range %02X to %02X. Sending exception response.", start_address,start_address+number_of_registers-1);
+      std::vector<uint8_t> error_response;
+      error_response.push_back(this->address_);
+      error_response.push_back(0x80+function_code); //0x80 + 0x10
+      error_response.push_back(0x02);
+      this->send_raw(error_response);
+      return;
+    }
+
+ t3=micros();
+
+  for (int i=0;i<number_of_registers;i++)
+  {
+    (*server_register_out->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+  }
+
+  std::string hexdump;
+    char hexdump_[6];
+
+    int i=0;
+   for (auto reg : (*server_register_out->glo_registers_))
+  {
+    i++;
+    if (i>48) break;
+    if ((i%16) == 0)
+    {
+        snprintf(hexdump_,6,"%04X\n",reg);
+    }
+    else
+    {
+        snprintf(hexdump_,6,"%04X ",reg);
+    }
+    hexdump.append(hexdump_);
+  }
+
+   t4=micros();
+  //call lambda
+  float value = server_register_out->lamda(*server_register_out->glo_registers_);
+   t5=micros();
+  this->send(function_code, start_address, number_of_registers, 0, nullptr); //response size not needed
+ t6=micros();
+  ESP_LOGV(TAG, "Reg: %s",hexdump.c_str());
+  ESP_LOGD(TAG, "t6 %d t5 %d t4 %d t3 %d t2 %d t1 %d",t6-t0,t5-t0,t4-t0,t3-t0,t2-t0,t1-t0);
+}
+
 
 SensorSet ModbusController::find_sensors_(ModbusRegisterType register_type, uint16_t start_address) const {
   auto reg_it = find_if(begin(register_ranges_), end(register_ranges_), [=](RegisterRange const &r) {
@@ -120,12 +284,15 @@ void ModbusController::on_register_data(ModbusRegisterType register_type, uint16
                                         const std::vector<uint8_t> &data) {
   ESP_LOGV(TAG, "data for register address : 0x%X : ", start_address);
 
-  // loop through all sensors with the same start address
+  // loop through all sensors with the same start address and register_type
   auto sensors = find_sensors_(register_type, start_address);
   for (auto *sensor : sensors) {
+  //lambda function for sensors called here
     sensor->parse_and_publish(data);
   }
 }
+
+
 
 void ModbusController::queue_command(const ModbusCommandItem &command) {
   // check if this command is already qeued.
@@ -183,14 +350,14 @@ void ModbusController::update() {
 
   for (auto &r : this->register_ranges_) {
     ESP_LOGVV(TAG, "Updating range 0x%X", r.start_address);
-    update_range_(r);
+    if (not disable_send_) update_range_(r);
   }
 }
 
 // walk through the sensors and determine the register ranges to read
 size_t ModbusController::create_register_ranges_() {
   register_ranges_.clear();
-  if (sensorset_.empty()) {
+  if (this->parent_->role == modbus::ModbusRole::CLIENT && sensorset_.empty()) {
     ESP_LOGW(TAG, "No sensors registered");
     return 0;
   }
@@ -296,7 +463,7 @@ size_t ModbusController::create_register_ranges_() {
 
 void ModbusController::dump_config() {
   ESP_LOGCONFIG(TAG, "ModbusController:");
-  ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
+  ESP_LOGCONFIG(TAG, "  Address: 0x%02X disable_send_ %d", this->address_,this->disable_send_);
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGCONFIG(TAG, "sensormap");
   for (auto &it : sensorset_) {
@@ -308,6 +475,11 @@ void ModbusController::dump_config() {
   for (auto &it : register_ranges_) {
     ESP_LOGCONFIG(TAG, "  Range type=%zu start=0x%X count=%d skip_updates=%d", static_cast<uint8_t>(it.register_type),
                   it.start_address, it.register_count, it.skip_updates);
+  }
+  ESP_LOGCONFIG(TAG, "server registers");
+  for (auto &r : serverregisters_) {
+    ESP_LOGCONFIG(TAG, "  Start adress=0x%02X value_type=%zu register_count=%u", r->start_address,
+                  static_cast<uint8_t>(r->value_type), r->register_count);
   }
 #endif
 }
@@ -499,12 +671,12 @@ ModbusCommandItem ModbusCommandItem::create_custom_command(
   return cmd;
 }
 
-bool ModbusCommandItem::send() {
+bool ModbusCommandItem::send(bool disable_send) {
   if (this->function_code != ModbusFunctionCode::CUSTOM) {
     modbusdevice->send(uint8_t(this->function_code), this->register_address, this->register_count, this->payload.size(),
                        this->payload.empty() ? nullptr : &this->payload[0]);
   } else {
-    modbusdevice->send_raw(this->payload);
+    modbusdevice->send_raw(this->payload,disable_send);
   }
   ESP_LOGV(TAG, "Command sent %d 0x%X %d", uint8_t(this->function_code), this->register_address, this->register_count);
   send_countdown--;
