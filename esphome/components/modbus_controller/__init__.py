@@ -247,8 +247,8 @@ async def to_code(config):
                             server_register[CONF_LAMBDA],
                             [  # params list for the lambda
                                (
-                                  cg.std_vector.template(cg.uint16).operator("ref"),
-                                  "data",
+                                   cg.std_vector.template(cg.uint16).operator("ref"),
+                                   "data",
                                ),
                             ],
                             return_type=cg.float_,
