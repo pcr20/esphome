@@ -171,7 +171,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         {
                 return true; //not enough bytes
         }
-   
+
     }
     else
     {
@@ -197,7 +197,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
     ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
-      
+
   bool found = false;
 
   for (auto *device : this->devices_) {
