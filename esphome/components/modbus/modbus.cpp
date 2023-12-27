@@ -64,13 +64,12 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 //modbus response: [addr,f_code,bytes, data[bytes],...,CRC1,CRC2] total length = bytes + 5
 //modbus command: [addr,f_code,reg_addr1,reg_addr2,num_reg1,num_reg2,CRC1,CRC2] total length = 3 + 5
 
- 
+
 
   frame_type_enum frame_type=no_frame;
   unsigned int data_len[6];
   unsigned int data_offset[6];
   bool is_response[6];
-  
   data_len[response_custom]=at - 2;
   data_offset[response_custom]=1;
   is_response[response_custom]=true;
@@ -90,7 +89,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   data_offset[command_05060F10]=7;
   is_response[command_05060F10]=false;
 
-  
+
     // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
     if (((function_code >= 65) && (function_code <= 72)) || ((function_code >= 100) && (function_code <= 110))) {
       // Handle user-defined function, since we don't know how big this ought to be,
@@ -98,23 +97,23 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
       // installed, but wait, there is the CRC, and if we get a hit there is a good
       // chance that this is a complete message ... admittedly there is a small chance is
       // isn't but that is quite small given the purpose of the CRC in the first place
-    
+
       // Fewer than 2 bytes can't calc CRC
       if (at < 2)
         return true;
       frame_type = response_custom;
       uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
       uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
-    
+
       if (computed_crc != remote_crc)
         return true;
-      
+
       ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
-    
+
     } else  if ((function_code & 0x80) == 0x80)
     {
     // Error ( msb indicates error )
-    // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc    
+    // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc
       frame_type = error_80;
     }
     else if ((function_code == 0x3 || function_code == 0x4))
@@ -139,7 +138,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
                 frame_type = response_0304;
             }
         }
-        
+
         if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
         {
                 return true; //not enough bytes
@@ -167,12 +166,12 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
                 frame_type = response_05060F10;
             }
         }
-        
+
         if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
         {
                 return true; //not enough bytes
-        }           
-        
+        }
+   
     }
     else
     {
@@ -191,11 +190,10 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
             return false;
           }
     }
-    
 
 
   uint16_t start_reg= uint16_t(raw[3]) | (uint16_t(raw[2]) << 8);
-  uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);  
+  uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);
 
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
     ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
@@ -225,7 +223,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
               device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
           }
       }
-      else 
+      else
       {
           device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
       }
@@ -280,9 +278,9 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     if (function_code == 0x10)
     {
     data.push_back(start_address >> 8);
-    data.push_back(start_address >> 0);    
+    data.push_back(start_address >> 0);
       data.push_back(number_of_entities >> 8);
-      data.push_back(number_of_entities >> 0);    
+      data.push_back(number_of_entities >> 0);
     }
   }
 
