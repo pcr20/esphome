@@ -107,7 +107,7 @@ ModbusServerRegisterSchema = cv.Schema(
         cv.Required(CONF_START_ADDRESS): cv.positive_int,
         cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
         cv.Optional(CONF_LAMBDA): cv.returning_lambda,
-        cv.Optional(CONF_REGISTER_COUNT):  cv.positive_int,        
+        cv.Optional(CONF_REGISTER_COUNT): cv.positive_int,
     }
 )
 
@@ -233,9 +233,9 @@ async def to_code(config):
     if CONF_SERVER_REGISTERS in config:
         for server_register in config[CONF_SERVER_REGISTERS]:
             if CONF_REGISTER_COUNT in server_register:
-                reg_count=server_register[CONF_REGISTER_COUNT]
+                reg_count = server_register[CONF_REGISTER_COUNT]
             else:
-                reg_count=TYPE_REGISTER_MAP[server_register[CONF_VALUE_TYPE]]
+                reg_count = TYPE_REGISTER_MAP[server_register[CONF_VALUE_TYPE]]
             cg.add(
                 var.add_server_register(
                     cg.new_Pvariable(
@@ -245,11 +245,11 @@ async def to_code(config):
                         reg_count,
                         await cg.process_lambda(
                             server_register[CONF_LAMBDA],
-                            [ #params list for the lambda
-                            (
-                                cg.std_vector.template(cg.uint16).operator("ref"),
-                                "data",
-                            ),
+                            [  # params list for the lambda
+                              (
+                              cg.std_vector.template(cg.uint16).operator("ref"),
+                              "data",
+                              ),
                             ],
                             return_type=cg.float_,
                         ),
