@@ -174,7 +174,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_TX_PIN): pins.internal_gpio_output_pin_schema,
             cv.Optional(CONF_RX_PIN): validate_rx_pin,
             cv.Optional(CONF_RX_BUFFER_SIZE, default=256): cv.validate_bytes,
-            cv.Optional(CONF_TX_BUFFER_SIZE, default=128): cv.validate_bytes,            
+            cv.Optional(CONF_TX_BUFFER_SIZE, default=128): cv.validate_bytes,
             cv.Optional(CONF_STOP_BITS, default=1): cv.one_of(1, 2, int=True),
             cv.Optional(CONF_DATA_BITS, default=8): cv.int_range(min=5, max=8),
             cv.Optional(CONF_PARITY, default="NONE"): cv.enum(
