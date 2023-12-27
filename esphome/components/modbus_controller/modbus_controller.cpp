@@ -71,11 +71,11 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
   }
   on_modbus_data(data);
   }
-  
+
 // Queue incoming response
 void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 
-  
+
   auto &current_command = this->command_queue_.front();
   if (current_command != nullptr) {
     if (this->module_offline_) {
@@ -101,7 +101,7 @@ void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 // Dispatch the response to the registered handler
 void ModbusController::process_modbus_data_(const ModbusCommandItem *response) {
   ESP_LOGV(TAG, "Process modbus response for address 0x%X size: %zu", response->register_address,
-           response->payload.size());  
+           response->payload.size());
   //***call*** the lambda registered by create_read_command or create_custom_command
   // the function registered is always ModbusController::on_register_data
   response->on_data_func(response->register_type, response->register_address, response->payload);
@@ -143,7 +143,7 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     ServerRegister *server_register_out=nullptr; //maintain scope outside of loop
     uint16_t start_offset=0;
    t1=micros();
-    
+
     for (auto *server_register : this->serverregisters_) {
       ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
       if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
@@ -166,10 +166,10 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
       this->send_raw(error_response);
       return;
     }
-  
+
 t3=micros();
 
-    
+
   std::vector<uint8_t> response;
   for (int i=0;i<number_of_registers;i++)
   {
@@ -180,9 +180,9 @@ t3=micros();
   t4=micros();
   //call lambda
   float value = server_register_out->lamda(*(server_register_out->glo_registers_));
-t5=micros();  
+t5=micros();
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
-  t6=micros();  
+  t6=micros();
   ESP_LOGD(TAG, "t6 %d t5 %d t4 %d t3 %d t2 %d t1 %d",t6-t0,t5-t0,t4-t0,t3-t0,t2-t0,t1-t0);
 }
 
@@ -217,7 +217,7 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
         start_offset= start_address-server_register->start_address;
         break;
       }
- t2=micros();  
+ t2=micros();
     }
     if (!found) {
       ESP_LOGW(TAG, "Could not match any register to address range %02X to %02X. Sending exception response.", start_address,start_address+number_of_registers-1);
@@ -228,14 +228,14 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
       this->send_raw(error_response);
       return;
     }
-    
- t3=micros();  
- 
+
+ t3=micros();
+
   for (int i=0;i<number_of_registers;i++)
   {
     (*server_register_out->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
   }
-  
+
   std::string hexdump;
     char hexdump_[6];
 
@@ -250,17 +250,17 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
     }
     else
     {
-        snprintf(hexdump_,6,"%04X ",reg);    
+        snprintf(hexdump_,6,"%04X ",reg);
     }
     hexdump.append(hexdump_);
   }
 
-   t4=micros();  
+   t4=micros();
   //call lambda
-  float value = server_register_out->lamda(*server_register_out->glo_registers_);  
-   t5=micros();  
+  float value = server_register_out->lamda(*server_register_out->glo_registers_);
+   t5=micros();
   this->send(function_code, start_address, number_of_registers, 0, nullptr); //response size not needed
- t6=micros();  
+ t6=micros();
   ESP_LOGV(TAG, "Reg: %s",hexdump.c_str());
   ESP_LOGD(TAG, "t6 %d t5 %d t4 %d t3 %d t2 %d t1 %d",t6-t0,t5-t0,t4-t0,t3-t0,t2-t0,t1-t0);
 }
