@@ -8,6 +8,7 @@
 #include <list>
 #include <queue>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace esphome {
@@ -245,10 +246,34 @@ class SensorItem {
   uint32_t bitmask;
   uint8_t offset;
   uint8_t register_count;
+  uint8_t address_in;
+  bool is_response_in;
+  uint8_t function_code_in;
+  uint16_t start_reg_in;
+  uint16_t num_reg_in;
+  uint16_t crc_in;
   uint8_t response_bytes{0};
   uint16_t skip_updates;
+
   std::vector<uint8_t> custom_data{};
   bool force_new_range{false};
+};
+
+class ServerRegister {
+ public:
+  ServerRegister(uint16_t start_address, SensorValueType value_type, uint8_t register_count,
+                 std::function<float(std::vector<uint16_t>&)> lambda) {
+    this->start_address = start_address;
+    this->value_type = value_type;
+    this->register_count = register_count;
+    this->lamda = std::move(lambda);
+  }
+  uint16_t start_address;
+  SensorValueType value_type;
+  uint8_t register_count;
+  int register_id;
+  std::function<float(std::vector<uint16_t> & data)> lamda;
+  std::vector<uint16_t> * glo_registers_;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
@@ -305,7 +330,7 @@ class ModbusCommandItem {
   std::function<void(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data)>
       on_data_func;
   std::vector<uint8_t> payload = {};
-  bool send();
+  bool send(bool disable_send=false);
   // wrong commands (esp. custom commands) can block the send queue
   // limit the number of repeats
   uint8_t send_countdown{MAX_SEND_REPEATS};
@@ -418,10 +443,18 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void queue_command(const ModbusCommandItem &command);
   /// Registers a sensor with the controller. Called by esphomes code generator
   void add_sensor_item(SensorItem *item) { sensorset_.insert(item); }
+  /// Registers a server register with the controller. Called by esphomes code generator
+  void add_server_register(ServerRegister *serverregister) { serverregisters_.push_back(serverregister); }
   /// called when a modbus response was parsed without errors
-  void on_modbus_data(const std::vector<uint8_t> &data) override;
+  void on_modbus_data(const std::vector<uint8_t> &data);
+  void on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
   void on_modbus_error(uint8_t function_code, uint8_t exception_code) override;
+  /// called when a modbus request (function code 3 or 4) was parsed without errors
+  void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
+  /// called when a modbus request (function code 0x10) was parsed without errors
+  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) final;
+
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
@@ -436,6 +469,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   size_t get_command_queue_length() { return command_queue_.size(); }
   /// get if the module is offline, didn't respond the last command
   bool get_module_offline() { return module_offline_; }
+  /// called by esphome generated code to set the command_throttle period
+  void set_disable_send(bool disable_send) { this->disable_send_ = disable_send; }
 
  protected:
   /// parse sensormap_ and create range of sequential addresses
@@ -452,6 +487,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void dump_sensors_();
   /// Collection of all sensors for this component
   SensorSet sensorset_;
+  /// Collection of all server registers for this component
+  std::vector<ServerRegister *> serverregisters_;
   /// Continuous range of modbus registers
   std::vector<RegisterRange> register_ranges_;
   /// Hold the pending requests to be sent
@@ -466,6 +503,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   bool module_offline_;
   /// how many updates to skip if module is offline
   uint16_t offline_skip_updates_;
+
+  bool disable_send_;
 };
 
 /** Convert vector<uint8_t> response payload to float.
