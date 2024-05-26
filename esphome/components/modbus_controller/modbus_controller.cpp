@@ -102,8 +102,6 @@ void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 void ModbusController::process_modbus_data_(const ModbusCommandItem *response) {
   ESP_LOGV(TAG, "Process modbus response for address 0x%X size: %zu", response->register_address,
            response->payload.size());
-  ESP_LOGD(TAG, "Process modbus 0x%X for address 0x%X size: %zu", response->register_type,response->register_address,
-           response->payload.size());           
   //***call*** the lambda registered by create_read_command or create_custom_command
   // the function registered is always ModbusController::on_register_data
   response->on_data_func(response->register_type, response->register_address, response->payload);

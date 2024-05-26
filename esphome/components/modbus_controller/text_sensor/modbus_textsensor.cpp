@@ -36,9 +36,8 @@ void ModbusTextSensor::parse_and_publish(const std::vector<uint8_t> &data) {
     items_left--;
     index++;
   }
-  
+
   auto result = output.str();
-  ESP_LOGD(TAG, "parse_and_publish: data.size() %d x.size() %d this->response_bytes %d",data.size(),result.size(),this->response_bytes);    
   // Is there a lambda registered
   // call it with the pre converted value and the raw data array
   if (this->transform_func_.has_value()) {
@@ -49,7 +48,6 @@ void ModbusTextSensor::parse_and_publish(const std::vector<uint8_t> &data) {
       result = val.value();
     }
   }
-  ESP_LOGD(TAG, "parse_and_publish: data.size() %d x.size() %d",data.size(),result.size());
   this->publish_state(result);
 }
 
