@@ -56,7 +56,7 @@ bool ModbusController::send_next_command_() {
 void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) {
   if (disable_send_)
   {
-    //static uint16_t staticcounter=0;
+    static uint16_t staticcounter=0;
       update_range_(register_ranges_.front());
       send_next_command_();
       //update sensor metadata
@@ -77,10 +77,10 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
               {
                 (*sensor->glo_registers_)[i+start_offset]=((uint16_t)data[2*i+1]) | (((uint16_t)data[2*i]) << 8);
               }*/
-              //(*sensor->glo_registers_)[0]=(uint16_t)(1);
-              //(*sensor->glo_registers_)[1]=(uint16_t)(2);
-              //(*sensor->glo_registers_)[2]=(uint16_t)(staticcounter);
-              //staticcounter++;
+              (*sensor->glo_registers_)[0]=(uint16_t)(1);
+              (*sensor->glo_registers_)[1]=(uint16_t)(2);
+              (*sensor->glo_registers_)[2]=(uint16_t)(staticcounter);
+              staticcounter++;
 
           }
     }
