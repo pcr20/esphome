@@ -73,11 +73,11 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
         ESP_LOGI(TAG, "**Fn: 0x%X A:0x%X #:%d S A:0x%x #:%d off:%d", function_code,start_address,number_of_registers,sensor->start_address,sensor->register_count,start_offset);        
             /*for (int i=0;i<number_of_registers;i++)
               {
-                (*sensor->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+                (*sensor->glo_registers_)[i+start_offset]=((uint16_t)data[2*i+1]) | (((uint16_t)data[2*i]) << 8);
               }*/
-              (*sensor->glo_registers_)[0]=uint16_t(1);
-              (*sensor->glo_registers_)[1]=uint16_t(2);
-              (*sensor->glo_registers_)[2]=uint16_t(staticcounter);
+              (*sensor->glo_registers_)[0]=(uint16_t)(1);
+              (*sensor->glo_registers_)[1]=(uint16_t)(2);
+              //(*sensor->glo_registers_)[2]=(uint16_t)(staticcounter);
               staticcounter++;
 
           }
