@@ -79,7 +79,7 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
               }*/
               (*sensor->glo_registers_)[0]=(uint16_t)(1);
               (*sensor->glo_registers_)[1]=(uint16_t)(2);
-              (*sensor->glo_registers_)[2]=(uint16_t)(staticcounter);
+              (*sensor->glo_registers_)[2]=staticcounter;
               staticcounter++;
 
           }
