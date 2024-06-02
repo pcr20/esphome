@@ -67,6 +67,14 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
         sensor->function_code_in=function_code;
         sensor->start_reg_in=start_address;
         sensor->num_reg_in=number_of_registers;
+        int start_offset = start_address-sensor->start_address;
+        ESP_LOGI(TAG, "Fn: 0x%X A:0x%X #:%d S A:0x%x #:%d", function_code,start_address,number_of_registers,sensor->start_address,sensor->register_count);
+        if ((sensor->start_address >= start_address) &&  ((start_address+number_of_registers) <= (sensor->start_address+sensor->register_count))) {
+            for (int i=0;i<number_of_registers;i++)
+              {
+                (*sensor->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+              }
+          }
     }
   }
   on_modbus_data(data);

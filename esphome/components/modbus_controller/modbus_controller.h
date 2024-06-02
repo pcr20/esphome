@@ -257,6 +257,7 @@ class SensorItem {
 
   std::vector<uint8_t> custom_data{};
   bool force_new_range{false};
+  std::vector<uint16_t> * glo_registers_;
 };
 
 class ServerRegister {
