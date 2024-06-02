@@ -69,7 +69,7 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
         sensor->num_reg_in=number_of_registers;
         int start_offset = start_address-sensor->start_address;
         ESP_LOGI(TAG, "Fn: 0x%X A:0x%X #:%d S A:0x%x #:%d", function_code,start_address,number_of_registers,sensor->start_address,sensor->register_count);
-        if ((sensor->start_address >= start_address) &&  ((start_address+number_of_registers) <= (sensor->start_address+sensor->register_count))) {
+        if ((start_address >= sensor->start_address) &&  ((start_address+number_of_registers) <= (sensor->start_address+sensor->register_count))) {
         ESP_LOGI(TAG, "**Fn: 0x%X A:0x%X #:%d S A:0x%x #:%d", function_code,start_address,number_of_registers,sensor->start_address,sensor->register_count);        
             /*for (int i=0;i<number_of_registers;i++)
               {
@@ -77,6 +77,10 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
               }*/
           }
     }
+    
+    
+    
+    
   }
   on_modbus_data(data);
   }
