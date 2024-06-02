@@ -245,7 +245,7 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
 
   for (int i=0;i<number_of_registers;i++)
   {
-    (*server_register_out->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
+    (server_register_out->glo_registers_)[i+start_offset]=uint16_t(data[2*i+1]) | (uint16_t(data[2*i]) << 8);
   }
 
   std::string hexdump;
