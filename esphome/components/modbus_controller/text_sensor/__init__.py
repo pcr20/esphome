@@ -37,6 +37,7 @@ RAW_ENCODING = {
     "NONE": RawEncoding.NONE,
     "HEXBYTES": RawEncoding.HEXBYTES,
     "COMMA": RawEncoding.COMMA,
+    "NA": RawEncoding.NA,
 }
 
 CONFIG_SCHEMA = cv.All(
