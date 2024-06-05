@@ -12,9 +12,10 @@ static const char *const TAG = "modbus_controller.text_sensor";
 void ModbusTextSensor::dump_config() { LOG_TEXT_SENSOR("", "Modbus Controller Text Sensor", this); }
 
 void ModbusTextSensor::parse_and_publish(const std::vector<uint8_t> &data) {
+  std::string result;
   if (this->encode_ == RawEncoding::NA)
   {
-    std::string result = "";
+     result= "";
   }
   else
   {
@@ -43,7 +44,7 @@ void ModbusTextSensor::parse_and_publish(const std::vector<uint8_t> &data) {
     index++;
   }
 
-  auto result = output.str();
+  result = output.str();
   }
     // Is there a lambda registered
   // call it with the pre converted value and the raw data array
