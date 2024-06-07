@@ -13,11 +13,7 @@ void ModbusTextSensor::dump_config() { LOG_TEXT_SENSOR("", "Modbus Controller Te
 
 void ModbusTextSensor::parse_and_publish(const std::vector<uint8_t> &data) {
   std::string result;
-  if (this->encode_ == RawEncoding::NA)
-  {
-     result= "";
-  }
-  else
+  if (this->encode_ != RawEncoding::NA)
   {
   std::ostringstream output;
   uint8_t items_left = this->response_bytes;
