@@ -39,7 +39,7 @@ if (exec_times_counter==256)
 }
 exec_times[exec_times_counter]=now-last_now;
 last_now=now;
-uart_availables[exec_times_counter]=now_available-last_available;
+uart_availables[exec_times_counter]=(now_available-last_available)>0?now_available-last_available?:0;
 last_available=now_available;
 sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
 if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
