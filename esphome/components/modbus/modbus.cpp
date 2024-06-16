@@ -14,25 +14,35 @@ void Modbus::setup() {
 }
 void Modbus::loop() {
   const uint32_t now = millis();
+  const int now_available= this->available();
 static uint32_t exec_times[256]; //will initialise to zero
+static int uart_availables[256]; //will initialise to zero
 static int exec_times_counter=0;
 static uint32_t last_now=0;
+static int last_available=0;
+static int sum_availables=0;
 static uint32_t sum_exec_times=0;
+static int max_availables=0;
 static uint32_t max_exec_times=0;
 uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times
+uint32_t temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables
 exec_times_counter++;
 if (exec_times_counter==256) 
 {
   exec_times_counter = 0;
 
-  ESP_LOGI(TAG, "av: %fms max: %04dms",((float)sum_exec_times)/256,max_exec_times);
+  ESP_LOGI(TAG, "av: %fms max: %04dms size av: %f max: %04d",((float)sum_exec_times)/256,max_exec_times,((float)sum_availables)/256,max_availables);
   max_exec_times=0; //reset max tracker
+  max_availables=0;
 }
 exec_times[exec_times_counter]=now-last_now;
 last_now=now;
+[exec_times_counter]=now_available-last_available;
+last_available=now_available;
 sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
 if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
-
+sum_availables=sum_availables+uart_availables[exec_times_counter]-temp2; //previous sum + new time - oldest time
+if (uart_availables[exec_times_counter]>max_availables)  max_availables=uart_availables[exec_times_counter];
 
 
 
