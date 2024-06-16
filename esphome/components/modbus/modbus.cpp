@@ -25,11 +25,12 @@ if (exec_times_counter==100) exec_times_counter = 0;
 {
   exec_times[exec_times_counter]=now-last_now;
   max_exec_times=exec_times[exec_times_counter]; //reset max tracker
+  ESP_LOGI(TAG, "av: %04dms max: %04dms",sum_exec_times/100,max_exec_times);
 }
 sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
 if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
 
-ESP_LOGI(TAG, "av: %04dms max: %04dms",sum_exec_times/100,max_exec_times);
+
 
 
 
