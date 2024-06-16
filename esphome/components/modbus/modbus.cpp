@@ -14,6 +14,24 @@ void Modbus::setup() {
 }
 void Modbus::loop() {
   const uint32_t now = millis();
+static uint32_t exec_times[100]; //will initialise to zero
+static int exec_times_counter=0;
+static uint32_t last_now=0;
+static uint32_t sum_exec_times=0;
+static uint32_t max_exec_times=0;
+uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times
+exec_times_counter++;
+if (exec_times_counter==100) exec_times_counter = 0;
+{
+  exec_times[exec_times_counter]=now-last_now;
+  max_exec_times=exec_times[exec_times_counter]; //reset max tracker
+}
+sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
+if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
+
+ESP_LOGI(TAG, "av: %04dms max: %04dms",sum_exec_times/100,max_exec_times);
+
+
 
   if (now - this->last_modbus_byte_ > 50) {
     this->rx_buffer_.clear();
