@@ -25,7 +25,7 @@ static uint32_t sum_exec_times=0;
 static int max_availables=0;
 static uint32_t max_exec_times=0;
 uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times
-uint32_t temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables
+int temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables
 exec_times_counter++;
 if (exec_times_counter==256) 
 {
@@ -37,7 +37,7 @@ if (exec_times_counter==256)
 }
 exec_times[exec_times_counter]=now-last_now;
 last_now=now;
-sum_availables[exec_times_counter]=now_available-last_available;
+uart_availables[exec_times_counter]=now_available-last_available;
 last_available=now_available;
 sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
 if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
