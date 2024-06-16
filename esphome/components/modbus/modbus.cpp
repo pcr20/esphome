@@ -24,8 +24,9 @@ exec_times_counter++;
 if (exec_times_counter==256) 
 {
   exec_times_counter = 0;
+
+  ESP_LOGI(TAG, "av: %fms max: %04dms",((float)sum_exec_times)/256,max_exec_times);
   max_exec_times=0; //reset max tracker
-  ESP_LOGI(TAG, "av: %04dms max: %04dms",sum_exec_times/256,max_exec_times);
 }
 exec_times[exec_times_counter]=now-last_now;
 last_now=now;
