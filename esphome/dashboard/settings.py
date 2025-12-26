@@ -10,20 +10,38 @@ from esphome.helpers import get_bool_env
 
 from .util.password import password_hash
 
+# Sentinel file name used for CORE.config_path when dashboard initializes.
+# This ensures .parent returns the config directory instead of root.
+_DASHBOARD_SENTINEL_FILE = "___DASHBOARD_SENTINEL___.yaml"
+
 
 class DashboardSettings:
     """Settings for the dashboard."""
 
+    __slots__ = (
+        "config_dir",
+        "password_hash",
+        "username",
+        "using_password",
+        "on_ha_addon",
+        "cookie_secret",
+        "absolute_config_dir",
+        "verbose",
+    )
+
     def __init__(self) -> None:
-        self.config_dir: str = ""
+        """Initialize the dashboard settings."""
+        self.config_dir: Path = None
         self.password_hash: str = ""
         self.username: str = ""
         self.using_password: bool = False
         self.on_ha_addon: bool = False
         self.cookie_secret: str | None = None
         self.absolute_config_dir: Path | None = None
+        self.verbose: bool = False
 
     def parse_args(self, args: Any) -> None:
+        """Parse the arguments."""
         self.on_ha_addon: bool = args.ha_addon
         password = args.password or os.getenv("PASSWORD") or ""
         if not self.on_ha_addon:
@@ -31,17 +49,19 @@ class DashboardSettings:
             self.using_password = bool(password)
         if self.using_password:
             self.password_hash = password_hash(password)
-        self.config_dir = args.configuration
-        self.absolute_config_dir = Path(self.config_dir).resolve()
-        CORE.config_path = os.path.join(self.config_dir, ".")
+        self.config_dir = Path(args.configuration)
+        self.absolute_config_dir = self.config_dir.resolve()
+        self.verbose = args.verbose
+        # Set to a sentinel file so .parent gives us the config directory.
+        # Previously this was `os.path.join(self.config_dir, ".")` which worked because
+        # os.path.dirname("/config/.") returns "/config", but Path("/config/.").parent
+        # normalizes to Path("/config") first, then .parent returns Path("/"), breaking
+        # secret resolution. Using a sentinel file ensures .parent gives the correct directory.
+        CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
 
     @property
     def relative_url(self) -> str:
         return os.getenv("ESPHOME_DASHBOARD_RELATIVE_URL") or "/"
-
-    @property
-    def status_use_ping(self):
-        return get_bool_env("ESPHOME_DASHBOARD_USE_PING")
 
     @property
     def status_use_mqtt(self) -> bool:
@@ -70,9 +90,9 @@ class DashboardSettings:
         # Compare password in constant running time (to prevent timing attacks)
         return hmac.compare_digest(self.password_hash, password_hash(password))
 
-    def rel_path(self, *args: Any) -> str:
+    def rel_path(self, *args: Any) -> Path:
         """Return a path relative to the ESPHome config folder."""
-        joined_path = os.path.join(self.config_dir, *args)
+        joined_path = self.config_dir / Path(*args)
         # Raises ValueError if not relative to ESPHome config folder
-        Path(joined_path).resolve().relative_to(self.absolute_config_dir)
+        joined_path.resolve().relative_to(self.absolute_config_dir)
         return joined_path

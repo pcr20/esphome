@@ -46,11 +46,18 @@ class ADE7953 : public PollingComponent, public sensor::Sensor {
   void set_pga_ib(uint8_t pga_ib) { pga_ib_ = pga_ib; }
 
   // Set input gains
-  void set_vgain(uint32_t vgain) { vgain_ = vgain; }
+  void set_vgain(uint32_t vgain) {
+    // Datasheet says: "to avoid discrepancies in other registers,
+    // if AVGAIN is set then BVGAIN should be set to the same value."
+    avgain_ = vgain;
+    bvgain_ = vgain;
+  }
   void set_aigain(uint32_t aigain) { aigain_ = aigain; }
   void set_bigain(uint32_t bigain) { bigain_ = bigain; }
   void set_awgain(uint32_t awgain) { awgain_ = awgain; }
   void set_bwgain(uint32_t bwgain) { bwgain_ = bwgain; }
+
+  void set_use_acc_energy_regs(bool use_acc_energy_regs) { use_acc_energy_regs_ = use_acc_energy_regs; }
 
   void set_voltage_sensor(sensor::Sensor *voltage_sensor) { voltage_sensor_ = voltage_sensor; }
   void set_frequency_sensor(sensor::Sensor *frequency_sensor) { frequency_sensor_ = frequency_sensor; }
@@ -98,11 +105,14 @@ class ADE7953 : public PollingComponent, public sensor::Sensor {
   uint8_t pga_v_;
   uint8_t pga_ia_;
   uint8_t pga_ib_;
-  uint32_t vgain_;
+  uint32_t avgain_;
+  uint32_t bvgain_;
   uint32_t aigain_;
   uint32_t bigain_;
   uint32_t awgain_;
   uint32_t bwgain_;
+  bool use_acc_energy_regs_{false};
+  uint32_t last_update_;
 
   virtual bool ade_write_8(uint16_t reg, uint8_t value) = 0;
 

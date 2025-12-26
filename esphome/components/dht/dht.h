@@ -11,6 +11,7 @@ enum DHTModel {
   DHT_MODEL_AUTO_DETECT = 0,
   DHT_MODEL_DHT11,
   DHT_MODEL_DHT22,
+  DHT_MODEL_AM2120,
   DHT_MODEL_AM2302,
   DHT_MODEL_RHT03,
   DHT_MODEL_SI7021,
@@ -27,6 +28,7 @@ class DHT : public PollingComponent {
    *  - DHT_MODEL_AUTO_DETECT (default)
    *  - DHT_MODEL_DHT11
    *  - DHT_MODEL_DHT22
+   *  - DHT_MODEL_AM2120
    *  - DHT_MODEL_AM2302
    *  - DHT_MODEL_RHT03
    *  - DHT_MODEL_SI7021
@@ -36,7 +38,10 @@ class DHT : public PollingComponent {
    */
   void set_dht_model(DHTModel model);
 
-  void set_pin(InternalGPIOPin *pin) { pin_ = pin; }
+  void set_pin(InternalGPIOPin *pin) {
+    this->t_pin_ = pin;
+    this->pin_ = pin->to_isr();
+  }
   void set_model(DHTModel model) { model_ = model; }
   void set_temperature_sensor(sensor::Sensor *temperature_sensor) { temperature_sensor_ = temperature_sensor; }
   void set_humidity_sensor(sensor::Sensor *humidity_sensor) { humidity_sensor_ = humidity_sensor; }
@@ -52,7 +57,8 @@ class DHT : public PollingComponent {
  protected:
   bool read_sensor_(float *temperature, float *humidity, bool report_errors);
 
-  InternalGPIOPin *pin_;
+  InternalGPIOPin *t_pin_;
+  ISRInternalGPIOPin pin_;
   DHTModel model_{DHT_MODEL_AUTO_DETECT};
   bool is_auto_detect_{false};
   sensor::Sensor *temperature_sensor_{nullptr};

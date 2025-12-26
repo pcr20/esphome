@@ -6,12 +6,12 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 #ifdef USE_UART_DEBUGGER
 #include "esphome/core/automation.h"
 #endif
 
-namespace esphome {
-namespace uart {
+namespace esphome::uart {
 
 enum UARTParityOptions {
   UART_CONFIG_PARITY_NONE,
@@ -82,6 +82,10 @@ class UARTComponent {
   // @param rx_pin Pointer to the internal GPIO pin used for reception.
   void set_rx_pin(InternalGPIOPin *rx_pin) { this->rx_pin_ = rx_pin; }
 
+  // Sets the flow control pin for the UART bus.
+  // @param flow_control_pin Pointer to the internal GPIO pin used for flow control.
+  void set_flow_control_pin(InternalGPIOPin *flow_control_pin) { this->flow_control_pin_ = flow_control_pin; }
+
   // Sets the size of the RX buffer.
   // @param rx_buffer_size Size of the RX buffer in bytes.
   void set_rx_buffer_size(size_t rx_buffer_size) { this->rx_buffer_size_ = rx_buffer_size; }
@@ -92,6 +96,26 @@ class UARTComponent {
   // Gets the size of the RX buffer.
   // @return Size of the RX buffer in bytes.
   size_t get_rx_buffer_size() { return this->rx_buffer_size_; }
+
+  // Sets the RX FIFO full interrupt threshold.
+  // @param rx_full_threshold RX full interrupt threshold in bytes.
+  virtual void set_rx_full_threshold(size_t rx_full_threshold) {}
+
+  // Sets the RX FIFO full interrupt threshold.
+  // @param time RX full interrupt threshold in ms.
+  void set_rx_full_threshold_ms(uint8_t time);
+
+  // Gets the RX FIFO full interrupt threshold.
+  // @return RX full interrupt threshold in bytes.
+  size_t get_rx_full_threshold() { return this->rx_full_threshold_; }
+
+  // Sets the RX timeout interrupt threshold.
+  // @param rx_timeout RX timeout interrupt threshold (unit: time of sending one byte).
+  virtual void set_rx_timeout(size_t rx_timeout) {}
+
+  // Gets the RX timeout interrupt threshold.
+  // @return RX timeout interrupt threshold (unit: time of sending one byte).
+  size_t get_rx_timeout() { return this->rx_timeout_; }
 
   // Sets the number of stop bits used in UART communication.
   // @param stop_bits Number of stop bits.
@@ -125,7 +149,7 @@ class UARTComponent {
   // @return Baud rate in bits per second.
   uint32_t get_baud_rate() const { return baud_rate_; }
 
-#ifdef USE_ESP32
+#if defined(USE_ESP8266) || defined(USE_ESP32)
   /**
    * Load the UART settings.
    * @param dump_config If true (default), output the new settings to logs; otherwise, change settings quietly.
@@ -150,7 +174,7 @@ class UARTComponent {
    * This will load the current UART interface with the latest settings (baud_rate, parity, etc).
    */
   virtual void load_settings(){};
-#endif  // USE_ESP32
+#endif  // USE_ESP8266 || USE_ESP32
 
 #ifdef USE_UART_DEBUGGER
   void add_debug_callback(std::function<void(UARTDirection, uint8_t)> &&callback) {
@@ -164,8 +188,12 @@ class UARTComponent {
 
   InternalGPIOPin *tx_pin_;
   InternalGPIOPin *rx_pin_;
+  InternalGPIOPin *flow_control_pin_;
   size_t rx_buffer_size_;
+  size_t rx_full_threshold_{1};
   size_t tx_buffer_size_;
+
+  size_t rx_timeout_{0};
   uint32_t baud_rate_;
   uint8_t stop_bits_;
   uint8_t data_bits_;
@@ -175,5 +203,4 @@ class UARTComponent {
 #endif
 };
 
-}  // namespace uart
-}  // namespace esphome
+}  // namespace esphome::uart

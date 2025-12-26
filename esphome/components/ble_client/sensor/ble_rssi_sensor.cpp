@@ -6,42 +6,38 @@
 
 #ifdef USE_ESP32
 
-namespace esphome {
-namespace ble_client {
+namespace esphome::ble_client {
 
 static const char *const TAG = "ble_rssi_sensor";
 
-void BLEClientRSSISensor::loop() {}
+void BLEClientRSSISensor::loop() {
+  // Parent BLEClientNode has a loop() method, but this component uses
+  // polling via update() and BLE GAP callbacks so loop isn't needed
+  this->disable_loop();
+}
 
 void BLEClientRSSISensor::dump_config() {
   LOG_SENSOR("", "BLE Client RSSI Sensor", this);
-  ESP_LOGCONFIG(TAG, "  MAC address        : %s", this->parent()->address_str().c_str());
+  ESP_LOGCONFIG(TAG, "  MAC address        : %s", this->parent()->address_str());
   LOG_UPDATE_INTERVAL(this);
 }
 
 void BLEClientRSSISensor::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                                               esp_ble_gattc_cb_param_t *param) {
   switch (event) {
-    case ESP_GATTC_OPEN_EVT: {
-      if (param->open.status == ESP_GATT_OK) {
-        ESP_LOGI(TAG, "[%s] Connected successfully!", this->get_name().c_str());
-        break;
-      }
-      break;
-    }
-    case ESP_GATTC_DISCONNECT_EVT: {
-      ESP_LOGW(TAG, "[%s] Disconnected!", this->get_name().c_str());
+    case ESP_GATTC_CLOSE_EVT: {
       this->status_set_warning();
       this->publish_state(NAN);
       break;
     }
-    case ESP_GATTC_SEARCH_CMPL_EVT:
+    case ESP_GATTC_SEARCH_CMPL_EVT: {
       this->node_state = espbt::ClientState::ESTABLISHED;
       if (this->should_update_) {
         this->should_update_ = false;
         this->get_rssi_();
       }
       break;
+    }
     default:
       break;
   }
@@ -72,15 +68,14 @@ void BLEClientRSSISensor::update() {
   this->get_rssi_();
 }
 void BLEClientRSSISensor::get_rssi_() {
-  ESP_LOGV(TAG, "requesting rssi from %s", this->parent()->address_str().c_str());
+  ESP_LOGV(TAG, "requesting rssi from %s", this->parent()->address_str());
   auto status = esp_ble_gap_read_rssi(this->parent()->get_remote_bda());
   if (status != ESP_OK) {
-    ESP_LOGW(TAG, "esp_ble_gap_read_rssi error, address=%s, status=%d", this->parent()->address_str().c_str(), status);
+    ESP_LOGW(TAG, "esp_ble_gap_read_rssi error, address=%s, status=%d", this->parent()->address_str(), status);
     this->status_set_warning();
     this->publish_state(NAN);
   }
 }
 
-}  // namespace ble_client
-}  // namespace esphome
+}  // namespace esphome::ble_client
 #endif

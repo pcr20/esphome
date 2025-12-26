@@ -1,14 +1,14 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.cpp_helpers import gpio_pin_expression
-from esphome.components import uart
-from esphome.const import (
-    CONF_FLOW_CONTROL_PIN,
-    CONF_ID,
-    CONF_ADDRESS,
-    CONF_DISABLE_CRC,
-)
+from __future__ import annotations
+
+from typing import Literal
+
 from esphome import pins
+import esphome.codegen as cg
+from esphome.components import uart
+import esphome.config_validation as cv
+from esphome.const import CONF_ADDRESS, CONF_DISABLE_CRC, CONF_FLOW_CONTROL_PIN, CONF_ID
+from esphome.cpp_helpers import gpio_pin_expression
+import esphome.final_validate as fv
 
 DEPENDENCIES = ["uart"]
 
@@ -69,6 +69,28 @@ def modbus_device_schema(default_address):
     else:
         schema[cv.Optional(CONF_ADDRESS, default=default_address)] = cv.hex_uint8_t
     return cv.Schema(schema)
+
+
+def final_validate_modbus_device(
+    name: str, *, role: Literal["server", "client"] | None = None
+):
+    def validate_role(value):
+        assert role in MODBUS_ROLES
+        if value != role:
+            raise cv.Invalid(f"Component {name} requires role to be {role}")
+        return value
+
+    def validate_hub(hub_config):
+        hub_schema = {}
+        if role is not None:
+            hub_schema[cv.Required(CONF_ROLE)] = validate_role
+
+        return cv.Schema(hub_schema, extra=cv.ALLOW_EXTRA)(hub_config)
+
+    return cv.Schema(
+        {cv.Required(CONF_MODBUS_ID): fv.id_declaration_match_schema(validate_hub)},
+        extra=cv.ALLOW_EXTRA,
+    )
 
 
 async def register_modbus_device(var, config):

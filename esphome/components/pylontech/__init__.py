@@ -1,4 +1,5 @@
 import logging
+
 import esphome.codegen as cg
 from esphome.components import uart
 import esphome.config_validation as cv
@@ -19,7 +20,7 @@ PylontechComponent = pylontech_ns.class_(
 )
 PylontechBattery = pylontech_ns.class_("PylontechBattery")
 
-CV_NUM_BATTERIES = cv.int_range(1, 6)
+CV_NUM_BATTERIES = cv.int_range(1, 16)
 
 PYLONTECH_COMPONENT_SCHEMA = cv.Schema(
     {
