@@ -21,6 +21,7 @@ from .const import (
     CONF_BYTE_OFFSET,
     CONF_COMMAND_THROTTLE,
     CONF_CUSTOM_COMMAND,
+    CONF_DISABLE_SEND,    
     CONF_FORCE_NEW_RANGE,
     CONF_MAX_CMD_RETRIES,
     CONF_MODBUS_CONTROLLER_ID,
@@ -178,6 +179,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SERVER_COURTESY_RESPONSE): SERVER_COURTESY_RESPONSE_SCHEMA,
             cv.Optional(CONF_MAX_CMD_RETRIES, default=4): cv.positive_int,
             cv.Optional(CONF_OFFLINE_SKIP_UPDATES, default=0): cv.positive_int,
+            cv.Optional(CONF_DISABLE_SEND, default=False): cv.boolean,
             cv.Optional(
                 CONF_SERVER_REGISTERS,
             ): cv.ensure_list(ModbusServerRegisterSchema),
@@ -313,6 +315,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add(var.set_allow_duplicate_commands(config[CONF_ALLOW_DUPLICATE_COMMANDS]))
     cg.add(var.set_command_throttle(config[CONF_COMMAND_THROTTLE]))
+    cg.add(var.set_disable_send(config[CONF_DISABLE_SEND]))
     if server_courtesy_response := config.get(CONF_SERVER_COURTESY_RESPONSE):
         cg.add(
             var.set_server_courtesy_response(

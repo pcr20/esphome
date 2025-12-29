@@ -228,6 +228,7 @@ class SensorItem {
   uint16_t skip_updates{0};
   std::vector<uint8_t> custom_data{};
   bool force_new_range{false};
+  std::vector<uint16_t> * glo_registers_;
 };
 
 struct ServerCourtesyResponse {
@@ -297,6 +298,7 @@ class ServerRegister {
   uint8_t register_count{0};
   ReadLambda read_lambda;
   WriteLambda write_lambda;
+  std::vector<uint16_t> * glo_registers_;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
@@ -352,7 +354,7 @@ class ModbusCommandItem {
   std::function<void(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data)>
       on_data_func;
   std::vector<uint8_t> payload = {};
-  bool send();
+  bool send(bool disable_send=false);
   /// Check if the command should be retried based on the max_retries parameter
   bool should_retry(uint8_t max_retries) { return this->send_count_ <= max_retries; };
 
@@ -474,12 +476,14 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void add_server_register(ServerRegister *server_register) { server_registers_.push_back(server_register); }
   /// called when a modbus response was parsed without errors
   void on_modbus_data(const std::vector<uint8_t> &data) override;
+  void on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
   void on_modbus_error(uint8_t function_code, uint8_t exception_code) override;
   /// called when a modbus request (function code 0x03 or 0x04) was parsed without errors
   void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
   /// called when a modbus request (function code 0x06 or 0x10) was parsed without errors
   void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
+  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
@@ -500,6 +504,7 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   size_t get_command_queue_length() { return command_queue_.size(); }
   /// get if the module is offline, didn't respond the last command
   bool get_module_offline() { return module_offline_; }
+  void set_disable_send(bool disable_send) { this->disable_send_ = disable_send; }
   /// Set callback for commands
   void add_on_command_sent_callback(std::function<void(int, int)> &&callback);
   /// Set callback for online changes
@@ -550,6 +555,9 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   bool module_offline_{false};
   /// how many updates to skip if module is offline
   uint16_t offline_skip_updates_{0};
+  
+  bool disable_send_;
+  
   /// How many times we will retry a command if we get no response
   uint8_t max_cmd_retries_{4};
   /// Command sent callback
