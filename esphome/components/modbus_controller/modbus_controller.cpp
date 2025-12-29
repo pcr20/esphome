@@ -212,6 +212,7 @@ t3=micros();
     auto decoded_value = decode_value(v);
     response.push_back(decoded_value[0]);
     response.push_back(decoded_value[1]);
+}
   t4=micros();
   //call lambda
   float value = server_register_out->lamda(*(server_register_out->glo_registers_));
