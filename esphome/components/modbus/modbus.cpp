@@ -14,9 +14,57 @@ void Modbus::setup() {
   }
 }
 void Modbus::loop() {
-  const uint32_t now = App.get_loop_component_start_time();
+  const uint32_t now = millis();
+  const int now_available= this->available();
+static uint32_t exec_times[256]; //will initialise to zero
+static int uart_availables[256]; //will initialise to zero
+static uint8_t exec_times_counter=0;
+static uint32_t last_now=0;
+static int last_available=0;
+static int sum_availables=0;
+static uint32_t sum_exec_times=0;
+static int max_availables=0;
+static int min_availables=0;
+static uint32_t max_exec_times=0;
+exec_times_counter++;
+uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times which will be overwritten
+int temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables which will be overwritten
 
-  while (this->available()) {
+if (exec_times_counter==0) //detect wrap
+{
+  exec_times_counter = 0;
+
+  ESP_LOGI(TAG, "av: %fms max: %04dms size av: %f max: %04d min: %04d",((float)sum_exec_times)/256,max_exec_times,((float)sum_availables)/256,max_availables,min_availables);
+  max_exec_times=0; //reset max tracker
+  max_availables=0;
+  min_availables=0;
+}
+exec_times[exec_times_counter]=now-last_now;
+last_now=now;
+uart_availables[exec_times_counter]=((now_available-last_available)>0)?(now_available-last_available):0;
+last_available=now_available;
+sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
+if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
+sum_availables=sum_availables+uart_availables[exec_times_counter]-temp2; //previous sum + new time - oldest time
+if (uart_availables[exec_times_counter]>max_availables)  max_availables=uart_availables[exec_times_counter];
+if (uart_availables[exec_times_counter]<min_availables)  min_availables=uart_availables[exec_times_counter];
+
+
+
+  if (now - this->last_modbus_byte_ > 50) {
+    this->rx_buffer_.clear();
+    this->last_modbus_byte_ = now;
+  }
+  // stop blocking new send commands after send_wait_time_ ms regardless if a response has been received since then
+  if (now - this->last_send_ > send_wait_time_) {
+    waiting_for_response = 0;
+  }
+ uint32_t start,end,us_max,start_t,end_t;
+ us_max=0;
+ bool result;
+ start_t=micros();
+ this->last_modbus_byte_=now;
+  while (this->available()  && ((now - this->last_modbus_byte_)<10)) {
     uint8_t byte;
     this->read_byte(&byte);
     if (this->parse_modbus_byte_(byte)) {
