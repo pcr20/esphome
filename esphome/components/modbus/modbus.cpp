@@ -223,12 +223,12 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         }
         if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
             function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-          device->on_modbus_write_registers(function_code, data);
+          device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
           continue;
         }
       }
       // fallthrough for other function codes
-      device->on_modbus_data(data);
+      device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
     }
   }
   waiting_for_response = 0;
@@ -257,7 +257,7 @@ float Modbus::get_setup_priority() const {
 }
 
 void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address, uint16_t number_of_entities,
-                  uint8_t payload_len, const uint8_t *payload) {
+                  uint8_t payload_len, const uint8_t *payload,bool disable_send) {
   static const size_t MAX_VALUES = 128;
 
   // Only check max number of registers for standard function codes
