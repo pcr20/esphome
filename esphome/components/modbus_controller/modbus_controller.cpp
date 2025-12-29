@@ -164,8 +164,10 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
 
   std::vector<uint16_t> sixteen_bit_response;
    t1=micros();  
+  bool found = false;
+  ServerRegister *server_register_out=nullptr; //maintain scope outside of loop
   for (uint16_t current_address = start_address; current_address < start_address + number_of_registers;) {
-    bool found = false;
+
     for (auto *server_register : this->server_registers_) {
       if (server_register->address == current_address) {
         if (!server_register->read_lambda) {
@@ -212,6 +214,7 @@ t3=micros();
     auto decoded_value = decode_value(v);
     response.push_back(decoded_value[0]);
     response.push_back(decoded_value[1]);
+}
   t4=micros();
   //call lambda
   float value = server_register_out->lamda(*(server_register_out->glo_registers_));
