@@ -217,7 +217,7 @@ t3=micros();
 }
   t4=micros();
   //call lambda
-  float value = server_register_out->lamda(*(server_register_out->glo_registers_));
+  //float value = server_register_out->lamda(*(server_register_out->glo_registers_));
 t5=micros();
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
   t6=micros();
