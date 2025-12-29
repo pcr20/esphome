@@ -45,9 +45,12 @@ void Modbus::loop() {
       waiting_for_response = 0;
     }
   }
+   end_t=micros();
+  if ((us_max>0)||(end_t-start_t>1000)) ESP_LOGD(TAG, "max %d total %d", us_max,end_t-start_t);
 }
 
 bool Modbus::parse_modbus_byte_(uint8_t byte) {
+  static const size_t MAX_MESSAGE_SIZE = 512;
   size_t at = this->rx_buffer_.size();
   this->rx_buffer_.push_back(byte);
   const uint8_t *raw = &this->rx_buffer_[0];
@@ -260,7 +263,7 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
 
 // Helper function for lambdas
 // Send raw command. Except CRC everything must be contained in payload
-void Modbus::send_raw(const std::vector<uint8_t> &payload) {
+void Modbus::send_raw(const std::vector<uint8_t> &payload,bool disable_send) {
   if (payload.empty()) {
     return;
   }
@@ -269,10 +272,13 @@ void Modbus::send_raw(const std::vector<uint8_t> &payload) {
     this->flow_control_pin_->digital_write(true);
 
   auto crc = crc16(payload.data(), payload.size());
+  if (not disable_send)
+  {
   this->write_array(payload);
   this->write_byte(crc & 0xFF);
   this->write_byte((crc >> 8) & 0xFF);
-  this->flush();
+  //this->flush();
+  }
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
   waiting_for_response = payload[0];
