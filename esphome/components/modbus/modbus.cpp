@@ -198,7 +198,23 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
       }
     }
   }
-  std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset, this->rx_buffer_.begin() + data_offset + data_len);
+    uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
+    uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
+
+    if (computed_crc != remote_crc) {
+          if (this->disable_crc_) {
+            ESP_LOGD(TAG, "Modbus CRC Check failed, but ignored! %02X!=%02X", computed_crc, remote_crc);
+          } else {
+            ESP_LOGW(TAG, "Modbus CRC Check failed! %02X!=%02X", computed_crc, remote_crc);
+            return false;
+          }
+    }
+
+  uint16_t start_reg= uint16_t(raw[3]) | (uint16_t(raw[2]) << 8);
+  uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);
+
+  std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
+    ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
   bool found = false;
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
