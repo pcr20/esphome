@@ -262,6 +262,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
           //continue;
         }
+    }
        else
       {
       // fallthrough for other function codes
