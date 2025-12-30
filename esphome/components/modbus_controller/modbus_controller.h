@@ -481,15 +481,15 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   /// Registers a server register with the controller. Called by esphomes code generator
   void add_server_register(ServerRegister *server_register) { server_registers_.push_back(server_register); }
   /// called when a modbus response was parsed without errors
-  void on_modbus_data(const std::vector<uint8_t> &data) override;
+  void on_modbus_data(const std::vector<uint8_t> &data);
   void on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data);
   /// called when a modbus error response was received
   void on_modbus_error(uint8_t function_code, uint8_t exception_code) override;
   /// called when a modbus request (function code 0x03 or 0x04) was parsed without errors
   void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
   /// called when a modbus request (function code 0x06 or 0x10) was parsed without errors
-  void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
-  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data);
+  void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data);
+  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
