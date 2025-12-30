@@ -67,31 +67,17 @@ if (uart_availables[exec_times_counter]<min_availables)  min_availables=uart_ava
   while (this->available()  && ((now - this->last_modbus_byte_)<10)) {
     uint8_t byte;
     this->read_byte(&byte);
-    if (this->parse_modbus_byte_(byte)) {
+    start=micros();
+    result=this->parse_modbus_byte_(byte);
+    end=micros();
+    if ((end-start)>us_max) us_max=(end-start);
+    if (result) {
       this->last_modbus_byte_ = now;
     } else {
-      size_t at = this->rx_buffer_.size();
-      if (at > 0) {
-        ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse failed", at);
-        this->rx_buffer_.clear();
-      }
-    }
-  }
 
-  if (now - this->last_modbus_byte_ > 50) {
-    size_t at = this->rx_buffer_.size();
-    if (at > 0) {
-      ESP_LOGV(TAG, "Clearing buffer of %d bytes - timeout", at);
       this->rx_buffer_.clear();
     }
 
-    // stop blocking new send commands after sent_wait_time_ ms after response received
-    if (now - this->last_send_ > send_wait_time_) {
-      if (waiting_for_response > 0) {
-        ESP_LOGV(TAG, "Stop waiting for response from %d", waiting_for_response);
-      }
-      waiting_for_response = 0;
-    }
   }
    end_t=micros();
   if ((us_max>0)||(end_t-start_t>1000)) ESP_LOGD(TAG, "max %d total %d", us_max,end_t-start_t);
@@ -272,13 +258,12 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
                                            uint16_t(data[3]) | (uint16_t(data[2]) << 8));
           //continue;
         }
-        else if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
-            function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
+        else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
           device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
           //continue;
         }
        else
-      }
+      {
       // fallthrough for other function codes
       device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
     }
@@ -292,9 +277,11 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   }
 
   // reset buffer
-  ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse succeeded", at);
-  this->rx_buffer_.clear();
-  return true;
+  //ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse succeeded", at);
+  //this->rx_buffer_.clear();
+  //return true;
+  // return false to reset buffer
+  return false;  
 }
 
 void Modbus::dump_config() {
@@ -332,6 +319,16 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
       data.push_back(number_of_entities >> 8);
       data.push_back(number_of_entities >> 0);
     }
+ }
+  else
+  { //this->role == ModbusRole::SERVER
+    if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS)
+    {
+    data.push_back(start_address >> 8);
+    data.push_back(start_address >> 0);
+      data.push_back(number_of_entities >> 8);
+      data.push_back(number_of_entities >> 0);
+    }
   }
 
   if (payload != nullptr) {
@@ -354,7 +351,7 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     this->flow_control_pin_->digital_write(true);
 
   this->write_array(data);
-  this->flush();
+  //this->flush();
 
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
