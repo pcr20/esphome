@@ -110,11 +110,36 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   uint8_t function_code = raw[1];
   // Byte 2: Size (with modbus rtu function code 4/3)
   // See also https://en.wikipedia.org/wiki/Modbus
-  if (at == 2)
+  if (at <= 2)
     return true;
 
-  uint8_t data_len = raw[2];
-  uint8_t data_offset = 3;
+//modbus response: [addr,f_code,bytes, data[bytes],...,CRC1,CRC2] total length = bytes + 5
+//modbus command: [addr,f_code,reg_addr1,reg_addr2,num_reg1,num_reg2,CRC1,CRC2] total length = 3 + 5
+
+
+
+  frame_type_enum frame_type=no_frame;
+  unsigned int data_len[6];
+  unsigned int data_offset[6];
+  bool is_response[6];
+  data_len[response_custom]=at - 2;
+  data_offset[response_custom]=1;
+  is_response[response_custom]=true;
+  data_len[error_80]=1;
+  data_offset[error_80]=2;
+  is_response[error_80]=true;
+  data_len[command_0304]=4;
+  data_offset[command_0304]=2;
+  is_response[command_0304]=false;
+  data_len[response_05060F10]=4;
+  data_offset[response_05060F10]=2;
+  is_response[response_05060F10]=true;
+  data_len[response_0304]=raw[2];
+  data_offset[response_0304]=3;
+  is_response[response_0304]=true;
+  data_len[command_05060F10]=raw[6];
+  data_offset[command_05060F10]=7;
+  is_response[command_05060F10]=false;
 
   // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
   if (((function_code >= FUNCTION_CODE_USER_DEFINED_SPACE_1_INIT) &&
@@ -130,12 +155,9 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     // Fewer than 2 bytes can't calc CRC
     if (at < 2)
       return true;
-
-    data_len = at - 2;
-    data_offset = 1;
-
-    uint16_t computed_crc = crc16(raw, data_offset + data_len);
-    uint16_t remote_crc = uint16_t(raw[data_offset + data_len]) | (uint16_t(raw[data_offset + data_len + 1]) << 8);
+    frame_type = response_custom;
+    uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
+    uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
 
     if (computed_crc != remote_crc)
       return true;
@@ -173,10 +195,11 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 
     // Error ( msb indicates error )
     // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc
-    if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
-      data_offset = 2;
-      data_len = 1;
+    } else if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
+      frame_type = error_80;
     }
+    else if ((function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS || function_code == ModbusFunctionCode::READ_INPUT_REGISTERS))
+    {
 
     // Byte data_offset..data_offset+data_len-1: Data
     if (at < data_offset + data_len)
@@ -218,6 +241,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   bool found = false;
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
+      ESP_LOGV(TAG, "Matched addr 0X%x", address);    	
       found = true;
       // Is it an error response?
       if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
