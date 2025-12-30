@@ -164,34 +164,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 
     ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
 
-  } else {
-    // data starts at 2 and length is 4 for read registers commands
-    if (this->role == ModbusRole::SERVER) {
-      if (function_code == ModbusFunctionCode::READ_COILS ||
-          function_code == ModbusFunctionCode::READ_DISCRETE_INPUTS ||
-          function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS ||
-          function_code == ModbusFunctionCode::READ_INPUT_REGISTERS ||
-          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER) {
-        data_offset = 2;
-        data_len = 4;
-      } else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-        if (at < 6) {
-          return true;
-        }
-        data_offset = 2;
-        // starting address (2 bytes) + quantity of registers (2 bytes) + byte count itself (1 byte) + actual byte count
-        data_len = 2 + 2 + 1 + raw[6];
-      }
-    } else {
-      // the response for write command mirrors the requests and data starts at offset 2 instead of 3 for read commands
-      if (function_code == ModbusFunctionCode::WRITE_SINGLE_COIL ||
-          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
-          function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS ||
-          function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-        data_offset = 2;
-        data_len = 4;
-      }
-    }
+
 
     // Error ( msb indicates error )
     // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc
@@ -200,27 +173,67 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     }
     else if ((function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS || function_code == ModbusFunctionCode::READ_INPUT_REGISTERS))
     {
+        //check for command
+        if ((at > data_offset[command_0304]+data_len[command_0304])) //read commands are 8 bytes
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[command_0304] + data_len[command_0304]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[command_0304] + data_len[command_0304]]) | (uint16_t(raw[data_offset[command_0304] + data_len[command_0304] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = command_0304;
+            }
+        }
+        //check for response
+        if ((at > data_offset[response_0304]+data_len[response_0304]) && (frame_type==no_frame))
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[response_0304] + data_len[response_0304]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[response_0304] + data_len[response_0304]]) | (uint16_t(raw[data_offset[response_0304] + data_len[response_0304] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = response_0304;
+            }
+        }
 
-    // Byte data_offset..data_offset+data_len-1: Data
-    if (at < data_offset + data_len)
-      return true;
-
-    // Byte 3+data_len: CRC_LO (over all bytes)
-    if (at == data_offset + data_len)
-      return true;
-
-    // Byte data_offset+len+1: CRC_HI (over all bytes)
-    uint16_t computed_crc = crc16(raw, data_offset + data_len);
-    uint16_t remote_crc = uint16_t(raw[data_offset + data_len]) | (uint16_t(raw[data_offset + data_len + 1]) << 8);
-    if (computed_crc != remote_crc) {
-      if (this->disable_crc_) {
-        ESP_LOGD(TAG, "Modbus CRC Check failed, but ignored! %02X!=%02X", computed_crc, remote_crc);
-      } else {
-        ESP_LOGW(TAG, "Modbus CRC Check failed! %02X!=%02X", computed_crc, remote_crc);
-        return false;
-      }
+        if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
+        {
+                return true; //not enough bytes
+        }
     }
-  }
+    else if ((function_code == ModbusFunctionCode::WRITE_SINGLE_COIL || function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER || function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS || function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS))
+    {
+        //check for command
+        if (at > data_offset[command_05060F10]+data_len[command_05060F10])
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[command_05060F10] + data_len[command_05060F10]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[command_05060F10] + data_len[command_05060F10]]) | (uint16_t(raw[data_offset[command_05060F10] + data_len[command_05060F10] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = command_05060F10;
+            }
+        }
+        //check for response
+        if ((at > data_offset[response_05060F10]+data_len[response_05060F10]) && (frame_type==no_frame)) //write responses are 8 bytes)
+        {
+            uint16_t computed_crc = crc16(raw, data_offset[response_05060F10] + data_len[response_05060F10]);
+            uint16_t remote_crc = uint16_t(raw[data_offset[response_05060F10] + data_len[response_05060F10]]) | (uint16_t(raw[data_offset[response_05060F10] + data_len[response_05060F10] + 1]) << 8);
+            if (computed_crc == remote_crc)
+            {
+                frame_type = response_05060F10;
+            }
+        }
+
+        if ((at<MAX_MESSAGE_SIZE)  && (frame_type==no_frame))
+        {
+                return true; //not enough bytes
+        }
+
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Unknown function code %02X", function_code);
+        return false;
+    }
+
     uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
     uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
 
@@ -242,7 +255,6 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
       ESP_LOGV(TAG, "Matched addr 0X%x", address);    	
-      found = true;
       // Is it an error response?
       if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
         ESP_LOGD(TAG, "Modbus error function code: 0x%X exception: %d", function_code, raw[2]);
@@ -252,24 +264,26 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           // Ignore modbus exception not related to a pending command
           ESP_LOGD(TAG, "Ignoring Modbus error - not expecting a response");
         }
-        continue;
-      }
-      if (this->role == ModbusRole::SERVER) {
+     } else if (this->role == ModbusRole::SERVER) 
+     {
         if (function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS ||
             function_code == ModbusFunctionCode::READ_INPUT_REGISTERS) {
           device->on_modbus_read_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
                                            uint16_t(data[3]) | (uint16_t(data[2]) << 8));
-          continue;
+          //continue;
         }
-        if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
+        else if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
             function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
           device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
-          continue;
+          //continue;
         }
+       else
       }
       // fallthrough for other function codes
       device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
     }
+    found=true;
+}
   }
   waiting_for_response = 0;
 
