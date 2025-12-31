@@ -163,14 +163,14 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
    t1=micros();
 
     for (auto *server_register : this->server_registers_) {
-      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
-      if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
+      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->address,server_register->start_address+server_register->register_count-1);
+      if ((start_address >= server_register->address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
         ESP_LOGD(TAG, "Matched registers. Start address: 0x%02X. End address: 0x%02X Request Start address: 0x%02X. End address: 0x%02X",
                  server_register->start_address,server_register->start_address+server_register->register_count-1,
                  start_address,start_address+number_of_registers-1);
         found = true;
         server_register_out=server_register;
-        start_offset= start_address-server_register->start_address;
+        start_offset= start_address-server_register->address;
         break;
       }
     t2=micros();
@@ -226,14 +226,14 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t
     uint16_t start_offset=0;
     t1=micros();
     for (auto *server_register : this->server_registers_) {
-      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->start_address,server_register->start_address+server_register->register_count-1);
-      if ((start_address >= server_register->start_address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
+      ESP_LOGV(TAG, "Server Start address: 0x%02X. End address: 0x%02X",server_register->address,server_register->start_address+server_register->register_count-1);
+      if ((start_address >= server_register->address) &&  ((start_address+number_of_registers) <= (server_register->start_address+server_register->register_count))) {
         ESP_LOGD(TAG, "Matched registers. Start address: 0x%02X. End address: 0x%02X Request Start address: 0x%02X. End address: 0x%02X",
-                 server_register->start_address,server_register->start_address+server_register->register_count-1,
+                 server_register->address,server_register->address+server_register->register_count-1,
                  start_address,start_address+number_of_registers-1);
         found = true;
         server_register_out=server_register;
-        start_offset= start_address-server_register->start_address;
+        start_offset= start_address-server_register->address;
         break;
       }
  t2=micros();
