@@ -259,7 +259,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           //continue;
         }
         else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-          device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
+          device->on_modbus_write_registers(function_code,data);
           //continue;
         }
     }
