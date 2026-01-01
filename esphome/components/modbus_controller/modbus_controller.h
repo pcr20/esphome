@@ -248,13 +248,6 @@ class ServerRegister {
   using WriteLambda = std::function<bool(int64_t value)>;
 
  public:
-  ServerRegister(uint16_t start_address, SensorValueType value_type, uint8_t register_count,
-                 std::function<float(std::vector<uint16_t>&)> lambda) {
-    this->address = start_address;
-    this->value_type = value_type;
-    this->register_count = register_count;
-    this->lamda = std::move(lambda);
-  }
   ServerRegister(uint16_t address, SensorValueType value_type, uint8_t register_count) {
     this->address = address;
     this->value_type = value_type;
@@ -312,7 +305,6 @@ class ServerRegister {
   ReadLambda read_lambda;
   WriteLambda write_lambda;
   std::vector<uint16_t> * glo_registers_;
-  std::function<float(std::vector<uint16_t> & data)> lamda;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
@@ -496,8 +488,7 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   /// called when a modbus request (function code 0x03 or 0x04) was parsed without errors
   void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
   /// called when a modbus request (function code 0x06 or 0x10) was parsed without errors
-  void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data);
-  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,const std::vector<uint8_t> &data) final;
+  void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
