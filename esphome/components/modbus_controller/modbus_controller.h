@@ -248,6 +248,13 @@ class ServerRegister {
   using WriteLambda = std::function<bool(int64_t value)>;
 
  public:
+  ServerRegister(uint16_t start_address, SensorValueType value_type, uint8_t register_count,
+                 std::function<float(std::vector<uint16_t>&)> lambda) {
+    this->address = start_address;
+    this->value_type = value_type;
+    this->register_count = register_count;
+    this->lamda = std::move(lambda);
+  }
   ServerRegister(uint16_t address, SensorValueType value_type, uint8_t register_count) {
     this->address = address;
     this->value_type = value_type;
@@ -305,6 +312,7 @@ class ServerRegister {
   ReadLambda read_lambda;
   WriteLambda write_lambda;
   std::vector<uint16_t> * glo_registers_;
+  std::function<float(std::vector<uint16_t> & data)> lamda;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
