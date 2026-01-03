@@ -21,6 +21,7 @@ from .const import (
     CONF_BYTE_OFFSET,
     CONF_COMMAND_THROTTLE,
     CONF_CUSTOM_COMMAND,
+    CONF_DISABLE_SEND,    
     CONF_FORCE_NEW_RANGE,
     CONF_MAX_CMD_RETRIES,
     CONF_MODBUS_CONTROLLER_ID,
@@ -36,7 +37,6 @@ from .const import (
     CONF_SERVER_COURTESY_RESPONSE,
     CONF_SKIP_UPDATES,
     CONF_VALUE_TYPE,
-    CONF_DISABLE_SEND,
 )
 
 CODEOWNERS = ["@martgras"]
@@ -334,30 +334,35 @@ async def to_code(config):
     cg.add(var.set_offline_skip_updates(config[CONF_OFFLINE_SKIP_UPDATES]))
     if CONF_SERVER_REGISTERS in config:
         for server_register in config[CONF_SERVER_REGISTERS]:
-            if CONF_REGISTER_COUNT in server_register:
-                reg_count = server_register[CONF_REGISTER_COUNT]
-            else:
-                reg_count = TYPE_REGISTER_MAP[server_register[CONF_VALUE_TYPE]]
+            server_register_var = cg.new_Pvariable(
+                server_register[CONF_ID],
+                server_register[CONF_ADDRESS],
+                server_register[CONF_VALUE_TYPE],
+                TYPE_REGISTER_MAP[server_register[CONF_VALUE_TYPE]],
+            )
+            cpp_type = CPP_TYPE_REGISTER_MAP[server_register[CONF_VALUE_TYPE]]
             cg.add(
-                var.add_server_register(
-                    cg.new_Pvariable(
-                        server_register[CONF_ID],
-                        server_register[CONF_START_ADDRESS],
-                        server_register[CONF_VALUE_TYPE],
-                        reg_count,
+                server_register_var.set_read_lambda(
+                    cg.TemplateArguments(cpp_type),
+                    await cg.process_lambda(
+                        server_register[CONF_READ_LAMBDA],
+                        [(cg.uint16, "address")],
+                        return_type=cpp_type,
+                    ),
+                )
+            )
+            if CONF_WRITE_LAMBDA in server_register:
+                cg.add(
+                    server_register_var.set_write_lambda(
+                        cg.TemplateArguments(cpp_type),
                         await cg.process_lambda(
-                            server_register[CONF_LAMBDA],
-                            [  # params list for the lambda
-                                (
-                                    cg.std_vector.template(cg.uint16).operator("ref"),
-                                    "data",
-                                ),
-                            ],
-                            return_type=cg.float_,
+                            server_register[CONF_WRITE_LAMBDA],
+                            parameters=[(cg.uint16, "address"), (cpp_type, "x")],
+                            return_type=cg.bool_,
                         ),
                     )
                 )
-            )
+            cg.add(var.add_server_register(server_register_var))
     await register_modbus_device(var, config)
     for conf in config.get(CONF_ON_COMMAND_SENT, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)

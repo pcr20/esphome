@@ -17,7 +17,42 @@ void Modbus::setup() {
   }
 }
 void Modbus::loop() {
-  const uint32_t now = App.get_loop_component_start_time();
+  const uint32_t now = millis();
+  const int now_available= this->available();
+static uint32_t exec_times[256]; //will initialise to zero
+static int uart_availables[256]; //will initialise to zero
+static uint8_t exec_times_counter=0;
+static uint32_t last_now=0;
+static int last_available=0;
+static int sum_availables=0;
+static uint32_t sum_exec_times=0;
+static int max_availables=0;
+static int min_availables=0;
+static uint32_t max_exec_times=0;
+exec_times_counter++;
+uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times which will be overwritten
+int temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables which will be overwritten
+
+if (exec_times_counter==0) //detect wrap
+{
+  exec_times_counter = 0;
+
+  ESP_LOGI(TAG, "av: %fms max: %04dms size av: %f max: %04d min: %04d",((float)sum_exec_times)/256,max_exec_times,((float)sum_availables)/256,max_availables,min_availables);
+  max_exec_times=0; //reset max tracker
+  max_availables=0;
+  min_availables=0;
+}
+exec_times[exec_times_counter]=now-last_now;
+last_now=now;
+uart_availables[exec_times_counter]=((now_available-last_available)>0)?(now_available-last_available):0;
+last_available=now_available;
+sum_exec_times=sum_exec_times+exec_times[exec_times_counter]-temp; //previous sum + new time - oldest time
+if (exec_times[exec_times_counter]>max_exec_times)  max_exec_times=exec_times[exec_times_counter];
+sum_availables=sum_availables+uart_availables[exec_times_counter]-temp2; //previous sum + new time - oldest time
+if (uart_availables[exec_times_counter]>max_availables)  max_availables=uart_availables[exec_times_counter];
+if (uart_availables[exec_times_counter]<min_availables)  min_availables=uart_availables[exec_times_counter];
+
+
 
   if (now - this->last_modbus_byte_ > 50) {
     this->rx_buffer_.clear();
@@ -42,28 +77,10 @@ void Modbus::loop() {
     if (result) {
       this->last_modbus_byte_ = now;
     } else {
-      size_t at = this->rx_buffer_.size();
-      if (at > 0) {
-        ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse failed", at);
-        this->rx_buffer_.clear();
-      }
-    }
-  }
 
-  if (now - this->last_modbus_byte_ > 50) {
-    size_t at = this->rx_buffer_.size();
-    if (at > 0) {
-      ESP_LOGV(TAG, "Clearing buffer of %d bytes - timeout", at);
       this->rx_buffer_.clear();
     }
 
-    // stop blocking new send commands after sent_wait_time_ ms after response received
-    if (now - this->last_send_ > send_wait_time_) {
-      if (waiting_for_response > 0) {
-        ESP_LOGV(TAG, "Stop waiting for response from %d", waiting_for_response);
-      }
-      waiting_for_response = 0;
-    }
   }
    end_t=micros();
   if ((us_max>0)||(end_t-start_t>1000)) ESP_LOGD(TAG, "max %d total %d", us_max,end_t-start_t);
@@ -88,16 +105,6 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
 //modbus response: [addr,f_code,bytes, data[bytes],...,CRC1,CRC2] total length = bytes + 5
 //modbus command: [addr,f_code,reg_addr1,reg_addr2,num_reg1,num_reg2,CRC1,CRC2] total length = 3 + 5
 
-  // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
-  if (((function_code >= FUNCTION_CODE_USER_DEFINED_SPACE_1_INIT) &&
-       (function_code <= FUNCTION_CODE_USER_DEFINED_SPACE_1_END)) ||
-      ((function_code >= FUNCTION_CODE_USER_DEFINED_SPACE_2_INIT) &&
-       (function_code <= FUNCTION_CODE_USER_DEFINED_SPACE_2_END))) {
-    // Handle user-defined function, since we don't know how big this ought to be,
-    // ideally we should delegate the entire length detection to whatever handler is
-    // installed, but wait, there is the CRC, and if we get a hit there is a good
-    // chance that this is a complete message ... admittedly there is a small chance is
-    // isn't but that is quite small given the purpose of the CRC in the first place
 
 
   frame_type_enum frame_type=no_frame;
@@ -123,62 +130,37 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   data_offset[command_05060F10]=7;
   is_response[command_05060F10]=false;
 
+  // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
+  if (((function_code >= FUNCTION_CODE_USER_DEFINED_SPACE_1_INIT) &&
+       (function_code <= FUNCTION_CODE_USER_DEFINED_SPACE_1_END)) ||
+      ((function_code >= FUNCTION_CODE_USER_DEFINED_SPACE_2_INIT) &&
+       (function_code <= FUNCTION_CODE_USER_DEFINED_SPACE_2_END))) {
+    // Handle user-defined function, since we don't know how big this ought to be,
+    // ideally we should delegate the entire length detection to whatever handler is
+    // installed, but wait, there is the CRC, and if we get a hit there is a good
+    // chance that this is a complete message ... admittedly there is a small chance is
+    // isn't but that is quite small given the purpose of the CRC in the first place
 
-    // Per https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf Ch 5 User-Defined function codes
-    if (((function_code >= 65) && (function_code <= 72)) || ((function_code >= 100) && (function_code <= 110))) {
-      // Handle user-defined function, since we don't know how big this ought to be,
-      // ideally we should delegate the entire length detection to whatever handler is
-      // installed, but wait, there is the CRC, and if we get a hit there is a good
-      // chance that this is a complete message ... admittedly there is a small chance is
-      // isn't but that is quite small given the purpose of the CRC in the first place
+    // Fewer than 2 bytes can't calc CRC
+    if (at < 2)
+      return true;
+    frame_type = response_custom;
+    uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
+    uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
 
-      // Fewer than 2 bytes can't calc CRC
-      if (at < 2)
-        return true;
-      frame_type = response_custom;
-      uint16_t computed_crc = crc16(raw, data_offset[frame_type] + data_len[frame_type]);
-      uint16_t remote_crc = uint16_t(raw[data_offset[frame_type] + data_len[frame_type]]) | (uint16_t(raw[data_offset[frame_type] + data_len[frame_type] + 1]) << 8);
+    if (computed_crc != remote_crc)
+      return true;
 
-  } else {
-    // data starts at 2 and length is 4 for read registers commands
-    if (this->role == ModbusRole::SERVER) {
-      if (function_code == ModbusFunctionCode::READ_COILS ||
-          function_code == ModbusFunctionCode::READ_DISCRETE_INPUTS ||
-          function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS ||
-          function_code == ModbusFunctionCode::READ_INPUT_REGISTERS ||
-          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER) {
-        data_offset = 2;
-        data_len = 4;
-      } else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-        if (at < 6) {
-          return true;
-        }
-        data_offset = 2;
-        // starting address (2 bytes) + quantity of registers (2 bytes) + byte count itself (1 byte) + actual byte count
-        data_len = 2 + 2 + 1 + raw[6];
-      }
-    } else {
-      // the response for write command mirrors the requests and data starts at offset 2 instead of 3 for read commands
-      if (function_code == ModbusFunctionCode::WRITE_SINGLE_COIL ||
-          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
-          function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS ||
-          function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-        data_offset = 2;
-        data_len = 4;
-      }
-    }
+    ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
 
-      ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
 
-    } else  if ((function_code & 0x80) == 0x80)
-    {
+
     // Error ( msb indicates error )
     // response format:  Byte[0] = device address, Byte[1] function code | 0x80 , Byte[2] exception code, Byte[3-4] crc
-    if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
-      data_offset = 2;
-      data_len = 1;
+    } else if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
+      frame_type = error_80;
     }
-    else if ((function_code == 0x3 || function_code == 0x4))
+    else if ((function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS || function_code == ModbusFunctionCode::READ_INPUT_REGISTERS))
     {
         //check for command
         if ((at > data_offset[command_0304]+data_len[command_0304])) //read commands are 8 bytes
@@ -206,7 +188,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
                 return true; //not enough bytes
         }
     }
-    else if ((function_code == 0x5 || function_code == 0x06 || function_code == 0xF || function_code == 0x10))
+    else if ((function_code == ModbusFunctionCode::WRITE_SINGLE_COIL || function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER || function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS || function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS))
     {
         //check for command
         if (at > data_offset[command_05060F10]+data_len[command_05060F10])
@@ -253,18 +235,15 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           }
     }
 
-
   uint16_t start_reg= uint16_t(raw[3]) | (uint16_t(raw[2]) << 8);
   uint16_t num_regs= uint16_t(raw[5]) | (uint16_t(raw[4]) << 8);
 
   std::vector<uint8_t> data(this->rx_buffer_.begin() + data_offset[frame_type], this->rx_buffer_.begin() + data_offset[frame_type] + data_len[frame_type]);
     ESP_LOGD(TAG, "Found addr: 0x%02x function 0x%02x frame_type %d start_reg %x num_regs %d data size %d",address, function_code, frame_type,start_reg,num_regs,data.size());
-
   bool found = false;
-
   for (auto *device : this->devices_) {
     if (device->address_ == address) {
-      found = true;
+      ESP_LOGV(TAG, "Matched addr 0X%x", address);    	
       // Is it an error response?
       if ((function_code & FUNCTION_CODE_EXCEPTION_MASK) == FUNCTION_CODE_EXCEPTION_MASK) {
         ESP_LOGD(TAG, "Modbus error function code: 0x%X exception: %d", function_code, raw[2]);
@@ -274,33 +253,26 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           // Ignore modbus exception not related to a pending command
           ESP_LOGD(TAG, "Ignoring Modbus error - not expecting a response");
         }
-      } else if (this->role == ModbusRole::SERVER)
-      {
-          if (function_code == 0x3 || function_code == 0x4) {
-              device->on_modbus_read_registers(function_code,start_reg,num_regs);
-              //void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t start_address,uint16_t number_of_registers)
-          }
-          else if (function_code == 0x10)
-          {
-              device->on_modbus_write_registers(function_code,start_reg,num_regs,data);
-          }
-      }
-      if (this->role == ModbusRole::SERVER) {
+     } else if (this->role == ModbusRole::SERVER) 
+     {
         if (function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS ||
             function_code == ModbusFunctionCode::READ_INPUT_REGISTERS) {
           device->on_modbus_read_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
                                            uint16_t(data[3]) | (uint16_t(data[2]) << 8));
-          continue;
+          //continue;
         }
-        if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
-            function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
-          device->on_modbus_write_registers(function_code, data);
-          continue;
+        else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
+          device->on_modbus_write_registers(function_code,data);
+          //continue;
         }
-      }
-      // fallthrough for other function codes
-      device->on_modbus_data(data);
     }
+       else
+      {
+      // fallthrough for other function codes
+      device->on_modbus_data(is_response[frame_type],address,function_code,start_reg,num_regs,remote_crc,data);
+    }
+    found=true;
+}
   }
   waiting_for_response = 0;
 
@@ -309,9 +281,11 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   }
 
   // reset buffer
-  ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse succeeded", at);
-  this->rx_buffer_.clear();
-  return true;
+  //ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse succeeded", at);
+  //this->rx_buffer_.clear();
+  //return true;
+  // return false to reset buffer
+  return false;  
 }
 
 void Modbus::dump_config() {
@@ -349,10 +323,10 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
       data.push_back(number_of_entities >> 8);
       data.push_back(number_of_entities >> 0);
     }
-  }
+ }
   else
   { //this->role == ModbusRole::SERVER
-    if (function_code == 0x10)
+    if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS)
     {
     data.push_back(start_address >> 8);
     data.push_back(start_address >> 0);
@@ -387,10 +361,7 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     this->flow_control_pin_->digital_write(false);
   waiting_for_response = address;
   last_send_ = millis();
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-  char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
-#endif
-  ESP_LOGV(TAG, "Modbus write: %s", format_hex_pretty_to(hex_buf, data.data(), data.size()));
+  ESP_LOGV(TAG, "Modbus write: %s", format_hex_pretty(data).c_str());
 }
 
 // Helper function for lambdas
@@ -414,10 +385,7 @@ void Modbus::send_raw(const std::vector<uint8_t> &payload,bool disable_send) {
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
   waiting_for_response = payload[0];
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-  char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
-#endif
-  ESP_LOGV(TAG, "Modbus write raw: %s", format_hex_pretty_to(hex_buf, payload.data(), payload.size()));
+  ESP_LOGV(TAG, "Modbus write raw: %s", format_hex_pretty(payload).c_str());
   last_send_ = millis();
 }
 
