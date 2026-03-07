@@ -15,6 +15,14 @@ void Modbus::setup() {
   if (this->flow_control_pin_ != nullptr) {
     this->flow_control_pin_->setup();
   }
+
+  this->frame_delay_ms_ =
+      std::max(2,  // 1750us minimum per spec - rounded up to 2ms.
+                   // 3.5 characters * 11 bits per character * 1000ms/sec / (bits/sec) (Standard modbus frame delay)
+               (uint16_t) (3.5 * 11 * 1000 / this->parent_->get_baud_rate()) + 1);
+
+  this->long_rx_buffer_delay_ms_ =
+      (this->parent_->get_rx_full_threshold() * 11 * 1000 / this->parent_->get_baud_rate()) + 1;
 }
 void Modbus::loop() {
   const uint32_t now = millis();
@@ -33,28 +41,6 @@ exec_times_counter++;
 uint32_t temp=exec_times[exec_times_counter]; //oldest member of exec_times which will be overwritten
 int temp2=uart_availables[exec_times_counter]; //oldest member of uart_availables which will be overwritten
 
-  // Read all available bytes in batches to reduce UART call overhead.
-  size_t avail = this->available();
-  uint8_t buf[64];
-  while (avail > 0) {
-    size_t to_read = std::min(avail, sizeof(buf));
-    if (!this->read_array(buf, to_read)) {
-      break;
-    }
-    avail -= to_read;
-
-    for (size_t i = 0; i < to_read; i++) {
-      if (this->parse_modbus_byte_(buf[i])) {
-        this->last_modbus_byte_ = now;
-      } else {
-        size_t at = this->rx_buffer_.size();
-        if (at > 0) {
-          ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse failed", at);
-          this->rx_buffer_.clear();
-        }
-      }
-    }
-  }
 if (exec_times_counter==0) //detect wrap
 {
   exec_times_counter = 0;
@@ -173,7 +159,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     if (computed_crc != remote_crc)
       return true;
 
-    ESP_LOGD(TAG, "Modbus user-defined function %02X found", function_code);
+    ESP_LOGD(TAG, "User-defined function %02X found", function_code);
 
 
 
@@ -296,10 +282,10 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     found=true;
 }
   }
-  waiting_for_response = 0;
 
-  if (!found) {
-    ESP_LOGW(TAG, "Got Modbus frame from unknown address 0x%02X! ", address);
+  if (!found && this->role == ModbusRole::CLIENT) {
+    ESP_LOGW(TAG, "Got frame from unknown address %" PRIu8 ", %" PRIu32 "ms after last send", address,
+             millis() - this->last_send_);
   }
 
   // reset buffer
@@ -310,12 +296,101 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   return false;  
 }
 
+
+bool Modbus::tx_blocked() {
+  const uint32_t now = millis();
+
+  // We block transmission in any of these case:
+  // 1. There are bytes in the UART Rx buffer
+  // 2. There are bytes in our Rx buffer
+  // 3. We're waiting for a response
+  // 4. The last sent byte isn't more than frame_delay ms ago (i.e. wait to tell receivers that our previous Tx is done)
+  // 5. The last received byte isn't more than frame_delay ms ago (i.e. wait to be sure there isn't more Rx coming)
+  // 6. If we're a client - also wait for the turnaround delay, to give the servers time to process the previous message
+  return this->available() || !this->rx_buffer_.empty() || (this->waiting_for_response_ != 0) ||
+         (now - this->last_send_ < this->last_send_tx_offset_ + this->frame_delay_ms_ +
+                                       (this->role == ModbusRole::CLIENT ? this->turnaround_delay_ms_ : 0)) ||
+         (now - this->last_modbus_byte_ <
+          this->frame_delay_ms_ + (this->role == ModbusRole::CLIENT ? this->turnaround_delay_ms_ : 0));
+}
+
+bool Modbus::tx_buffer_empty() { return this->tx_buffer_.empty(); }
+
+void Modbus::receive_and_parse_modbus_bytes_() {
+  // Read all available bytes in batches to reduce UART call overhead.
+  size_t avail = this->available();
+  uint8_t buf[64];
+  while (avail > 0) {
+    size_t to_read = std::min(avail, sizeof(buf));
+    if (!this->read_array(buf, to_read)) {
+      break;
+    }
+    avail -= to_read;
+
+    for (size_t i = 0; i < to_read; i++) {
+      if (this->parse_modbus_byte_(buf[i])) {
+        this->last_modbus_byte_ = now;
+      if (this->rx_buffer_.empty()) {
+        ESP_LOGV(TAG, "Received first byte %" PRIu8 " (0X%x) %" PRIu32 "ms after last send", buf[i], buf[i],
+                 millis() - this->last_send_);
+      } else {
+        size_t at = this->rx_buffer_.size();
+        if (at > 0) {
+          ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse failed", at);
+          this->rx_buffer_.clear();
+        }
+        ESP_LOGVV(TAG, "Received byte %" PRIu8 " (0X%x) %" PRIu32 "ms after last send", buf[i], buf[i],
+                  millis() - this->last_send_);
+      }
+    }
+  }
+
+void Modbus::send_next_frame_() {
+  if (this->tx_buffer_.empty())
+    return;
+
+  if (this->tx_blocked())
+    return;
+
+  const ModbusDeviceCommand &frame = this->tx_buffer_.front();
+
+  if (this->role == ModbusRole::CLIENT) {
+    this->waiting_for_response_ = frame.data.get()[0];
+  }
+
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->digital_write(true);
+    this->write_array(frame.data.get(), frame.size);
+    this->flush();
+    this->flow_control_pin_->digital_write(false);
+    this->last_send_tx_offset_ = 0;
+  } else {
+    this->write_array(frame.data.get(), frame.size);
+    this->last_send_tx_offset_ = frame.size * 11 * 1000 / this->parent_->get_baud_rate() + 1;
+  }
+
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
+  char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
+#endif
+  ESP_LOGV(TAG, "Write: %s %" PRIu32 "ms after last send", format_hex_pretty_to(hex_buf, frame.data.get(), frame.size),
+           millis() - this->last_send_);
+  this->last_send_ = millis();
+  this->tx_buffer_.pop_front();
+  if (!this->tx_buffer_.empty()) {
+    ESP_LOGV(TAG, "Write queue contains %" PRIu32 " items.", this->tx_buffer_.size());
+  }
+}
+
 void Modbus::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "Modbus:\n"
                 "  Send Wait Time: %d ms\n"
+                "  Turnaround Time: %d ms\n"
+                "  Frame Delay: %d ms\n"
+                "  Long Rx Buffer Delay: %d ms\n"
                 "  CRC Disabled: %s",
-                this->send_wait_time_, YESNO(this->disable_crc_));
+                this->send_wait_time_, this->turnaround_delay_ms_, this->frame_delay_ms_,
+                this->long_rx_buffer_delay_ms_, YESNO(this->disable_crc_));
   LOG_PIN("  Flow Control Pin: ", this->flow_control_pin_);
 }
 float Modbus::get_setup_priority() const {
@@ -334,15 +409,6 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     return;
   }
 
-  static constexpr size_t ADDR_SIZE = 1;
-  static constexpr size_t FC_SIZE = 1;
-  static constexpr size_t START_ADDR_SIZE = 2;
-  static constexpr size_t NUM_ENTITIES_SIZE = 2;
-  static constexpr size_t BYTE_COUNT_SIZE = 1;
-  static constexpr size_t MAX_PAYLOAD_SIZE = std::numeric_limits<uint8_t>::max();
-  static constexpr size_t CRC_SIZE = 2;
-  static constexpr size_t MAX_FRAME_SIZE =
-      ADDR_SIZE + FC_SIZE + START_ADDR_SIZE + NUM_ENTITIES_SIZE + BYTE_COUNT_SIZE + MAX_PAYLOAD_SIZE + CRC_SIZE;
   uint8_t data[MAX_FRAME_SIZE];
   size_t pos = 0;
 
@@ -375,6 +441,10 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     } else {
       payload_len = 2;  // Write single register or coil
     }
+    if (payload_len + pos + 2 > MAX_FRAME_SIZE) {  // Check if payload fits (accounting for CRC)
+      ESP_LOGE(TAG, "Payload too large to send: %d bytes", payload_len);
+      return;
+    }
     for (int i = 0; i < payload_len; i++) {
       data[pos++] = payload[i];
     }
@@ -406,26 +476,44 @@ void Modbus::send_raw(const std::vector<uint8_t> &payload,bool disable_send) {
   if (payload.empty()) {
     return;
   }
-
-  if (this->flow_control_pin_ != nullptr)
-    this->flow_control_pin_->digital_write(true);
-
-  auto crc = crc16(payload.data(), payload.size());
-  if (not disable_send)
-  {
-  this->write_array(payload);
-  this->write_byte(crc & 0xFF);
-  this->write_byte((crc >> 8) & 0xFF);
-  //this->flush();
+  // Frame size: payload + CRC(2)
+  if (payload.size() + 2 > MAX_FRAME_SIZE) {
+    ESP_LOGE(TAG, "Attempted to send frame larger than max frame size of %d bytes", MAX_FRAME_SIZE);
+    return;
   }
-  if (this->flow_control_pin_ != nullptr)
-    this->flow_control_pin_->digital_write(false);
-  waiting_for_response = payload[0];
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-  char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
+  // Use stack buffer - Modbus frames are small and bounded
+  uint8_t data[MAX_FRAME_SIZE];
+
+  std::memcpy(data, payload.data(), payload.size());
+
+  this->queue_raw_(data, payload.size());
+}
+
+// Assume data and length is valid and append CRC, then queue for sending. Used internally to avoid unnecessary copying
+// of data into vectors
+void Modbus::queue_raw_(const uint8_t *data, uint16_t len) {
+  if (this->tx_buffer_.size() < MODBUS_TX_BUFFER_SIZE) {
+    this->tx_buffer_.emplace_back(data, len);
+  } else {
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_ERROR
+    char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
 #endif
-  ESP_LOGV(TAG, "Modbus write raw: %s", format_hex_pretty_to(hex_buf, payload.data(), payload.size()));
-  last_send_ = millis();
+    ESP_LOGE(TAG, "Write buffer full, dropped: %s", format_hex_pretty_to(hex_buf, data, len));
+  }
+}
+
+void Modbus::clear_rx_buffer_(const LogString *reason, bool warn) {
+  size_t at = this->rx_buffer_.size();
+  if (at > 0) {
+    if (warn) {
+      ESP_LOGW(TAG, "Clearing buffer of %" PRIu32 " bytes - %s %" PRIu32 "ms after last send", at, LOG_STR_ARG(reason),
+               millis() - this->last_send_);
+    } else {
+      ESP_LOGV(TAG, "Clearing buffer of %" PRIu32 " bytes - %s %" PRIu32 "ms after last send", at, LOG_STR_ARG(reason),
+               millis() - this->last_send_);
+    }
+    this->rx_buffer_.clear();
+  }
 }
 
 }  // namespace modbus
