@@ -7,6 +7,7 @@ from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_AP,
+    CONF_COMPRESSION,
     CONF_ID,
     PLATFORM_BK72XX,
     PLATFORM_ESP32,
@@ -43,6 +44,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
                 web_server_base.WebServerBase
             ),
+            cv.Optional(CONF_COMPRESSION, default="gzip"): cv.one_of("gzip", "br"),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on(
@@ -74,13 +76,15 @@ def _final_validate(config: ConfigType) -> ConfigType:
 
     # Register socket needs for DNS server and additional HTTP connections
     # - 1 UDP socket for DNS server
-    # - 3 additional TCP sockets for captive portal detection probes + configuration requests
+    # - 3 TCP sockets for captive portal detection probes + configuration requests
     #   OS captive portal detection makes multiple probe requests that stay in TIME_WAIT.
     #   Need headroom for actual user configuration requests.
     #   LRU purging will reclaim idle sockets to prevent exhaustion from repeated attempts.
+    # The listening socket is registered by web_server_base (shared HTTP server).
     from esphome.components import socket
 
-    socket.consume_sockets(4, "captive_portal")(config)
+    socket.consume_sockets(3, "captive_portal")(config)
+    socket.consume_sockets(1, "captive_portal", socket.SocketType.UDP)(config)
 
     return config
 
@@ -95,6 +99,9 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
     cg.add_define("USE_CAPTIVE_PORTAL")
+
+    if config[CONF_COMPRESSION] == "gzip":
+        cg.add_define("USE_CAPTIVE_PORTAL_GZIP")
 
     if CORE.using_arduino:
         if CORE.is_esp8266:

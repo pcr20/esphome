@@ -3,13 +3,16 @@
 #include "esphome/core/component.h"
 #include "esphome/core/entity_base.h"
 #include "esphome/core/helpers.h"
+#ifdef USE_TEXT_SENSOR_FILTER
 #include "esphome/components/text_sensor/filter.h"
+#endif
 
 #include <initializer_list>
 #include <memory>
 
-namespace esphome {
-namespace text_sensor {
+namespace esphome::text_sensor {
+
+class TextSensor;
 
 void log_text_sensor(const char *tag, const char *prefix, const char *type, TextSensor *obj);
 
@@ -42,7 +45,10 @@ class TextSensor : public EntityBase, public EntityBase_DeviceClass {
   const std::string &get_raw_state() const;
 
   void publish_state(const std::string &state);
+  void publish_state(const char *state);
+  void publish_state(const char *state, size_t len);
 
+#ifdef USE_TEXT_SENSOR_FILTER
   /// Add a filter to the filter chain. Will be appended to the back.
   void add_filter(Filter *filter);
 
@@ -54,6 +60,7 @@ class TextSensor : public EntityBase, public EntityBase_DeviceClass {
 
   /// Clear the entire filter chain.
   void clear_filters();
+#endif
 
   void add_on_state_callback(std::function<void(const std::string &)> callback);
   /// Add a callback that will be called every time the sensor sends a raw value.
@@ -63,13 +70,17 @@ class TextSensor : public EntityBase, public EntityBase_DeviceClass {
   // (In most use cases you won't need these)
 
   void internal_send_state_to_frontend(const std::string &state);
+  void internal_send_state_to_frontend(const char *state, size_t len);
 
  protected:
+  /// Notify frontend that state has changed (assumes this->state is already set)
+  void notify_frontend_();
   LazyCallbackManager<void(const std::string &)> raw_callback_;  ///< Storage for raw state callbacks.
   LazyCallbackManager<void(const std::string &)> callback_;      ///< Storage for filtered state callbacks.
 
+#ifdef USE_TEXT_SENSOR_FILTER
   Filter *filter_list_{nullptr};  ///< Store all active filters.
+#endif
 };
 
-}  // namespace text_sensor
-}  // namespace esphome
+}  // namespace esphome::text_sensor
