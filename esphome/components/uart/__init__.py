@@ -4,7 +4,9 @@ import re
 
 from esphome import automation, pins
 import esphome.codegen as cg
-from esphome.components.const import ICON_CURRENT_DC, CONF_PARITY, CONF_STOP_BITS
+from esphome.components.const import ICON_CURRENT_DC
+from esphome.components.const import CONF_PARITY
+from esphome.components.const import CONF_STOP_BITS
 from esphome.components.const import CONF_DATA_BITS, CONF_PARITY, CONF_STOP_BITS
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
