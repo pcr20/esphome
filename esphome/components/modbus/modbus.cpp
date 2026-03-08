@@ -326,24 +326,23 @@ void Modbus::receive_and_parse_modbus_bytes_() {
       break;
     }
     avail -= to_read;
-
     for (size_t i = 0; i < to_read; i++) {
-      if (this->parse_modbus_byte_(buf[i])) {
-        this->last_modbus_byte_ = now;
       if (this->rx_buffer_.empty()) {
         ESP_LOGV(TAG, "Received first byte %" PRIu8 " (0X%x) %" PRIu32 "ms after last send", buf[i], buf[i],
                  millis() - this->last_send_);
       } else {
-        size_t at = this->rx_buffer_.size();
-        if (at > 0) {
-          ESP_LOGV(TAG, "Clearing buffer of %d bytes - parse failed", at);
-          this->rx_buffer_.clear();
-        }
         ESP_LOGVV(TAG, "Received byte %" PRIu8 " (0X%x) %" PRIu32 "ms after last send", buf[i], buf[i],
                   millis() - this->last_send_);
       }
+
+      // If the bytes in the rx buffer do not parse, clear out the buffer
+      if (!this->parse_modbus_byte_(buf[i])) {
+        this->clear_rx_buffer_(LOG_STR("parse failed"), true);
+      }
+      this->last_modbus_byte_ = millis();
     }
   }
+}
 
 void Modbus::send_next_frame_() {
   if (this->tx_buffer_.empty())
