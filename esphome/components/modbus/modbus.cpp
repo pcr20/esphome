@@ -282,10 +282,10 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
     found=true;
 }
   }
+  waiting_for_response = 0;
 
-  if (!found && this->role == ModbusRole::CLIENT) {
-    ESP_LOGW(TAG, "Got frame from unknown address %" PRIu8 ", %" PRIu32 "ms after last send", address,
-             millis() - this->last_send_);
+  if (!found) {
+    ESP_LOGW(TAG, "Got Modbus frame from unknown address 0x%02X! ", address);
   }
 
   // reset buffer
@@ -409,18 +409,16 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
     return;
   }
 
-  uint8_t data[MAX_FRAME_SIZE];
-  size_t pos = 0;
-
-  data[pos++] = address;
-  data[pos++] = function_code;
+  std::vector<uint8_t> data;
+  data.push_back(address);
+  data.push_back(function_code);
   if (this->role == ModbusRole::CLIENT) {
-    data[pos++] = start_address >> 8;
-    data[pos++] = start_address >> 0;
+    data.push_back(start_address >> 8);
+    data.push_back(start_address >> 0);
     if (function_code != ModbusFunctionCode::WRITE_SINGLE_COIL &&
         function_code != ModbusFunctionCode::WRITE_SINGLE_REGISTER) {
-      data[pos++] = number_of_entities >> 8;
-      data[pos++] = number_of_entities >> 0;
+      data.push_back(number_of_entities >> 8);
+      data.push_back(number_of_entities >> 0);
     }
  }
   else
@@ -437,37 +435,30 @@ void Modbus::send(uint8_t address, uint8_t function_code, uint16_t start_address
   if (payload != nullptr) {
     if (this->role == ModbusRole::SERVER || function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS ||
         function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {  // Write multiple
-      data[pos++] = payload_len;                                          // Byte count is required for write
+      data.push_back(payload_len);                                        // Byte count is required for write
     } else {
       payload_len = 2;  // Write single register or coil
     }
-    if (payload_len + pos + 2 > MAX_FRAME_SIZE) {  // Check if payload fits (accounting for CRC)
-      ESP_LOGE(TAG, "Payload too large to send: %d bytes", payload_len);
-      return;
-    }
     for (int i = 0; i < payload_len; i++) {
-      data[pos++] = payload[i];
+      data.push_back(payload[i]);
     }
   }
 
-  auto crc = crc16(data, pos);
-  data[pos++] = crc >> 0;
-  data[pos++] = crc >> 8;
+  auto crc = crc16(data.data(), data.size());
+  data.push_back(crc >> 0);
+  data.push_back(crc >> 8);
 
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(true);
 
-  this->write_array(data, pos);
+  this->write_array(data);
   //this->flush();
 
   if (this->flow_control_pin_ != nullptr)
     this->flow_control_pin_->digital_write(false);
   waiting_for_response = address;
   last_send_ = millis();
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-  char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
-#endif
-  ESP_LOGV(TAG, "Modbus write: %s", format_hex_pretty_to(hex_buf, data, pos));
+  ESP_LOGV(TAG, "Modbus write: %s", format_hex_pretty(data).c_str());
 }
 
 // Helper function for lambdas
@@ -476,31 +467,25 @@ void Modbus::send_raw(const std::vector<uint8_t> &payload,bool disable_send) {
   if (payload.empty()) {
     return;
   }
-  // Frame size: payload + CRC(2)
-  if (payload.size() + 2 > MAX_FRAME_SIZE) {
-    ESP_LOGE(TAG, "Attempted to send frame larger than max frame size of %d bytes", MAX_FRAME_SIZE);
-    return;
+
+  if (this->flow_control_pin_ != nullptr)
+    this->flow_control_pin_->digital_write(true);
+
+  auto crc = crc16(payload.data(), payload.size());
+  if (not disable_send)
+  {
+  this->write_array(payload);
+  this->write_byte(crc & 0xFF);
+  this->write_byte((crc >> 8) & 0xFF);
+  //this->flush();
   }
-  // Use stack buffer - Modbus frames are small and bounded
-  uint8_t data[MAX_FRAME_SIZE];
-
-  std::memcpy(data, payload.data(), payload.size());
-
-  this->queue_raw_(data, payload.size());
+  if (this->flow_control_pin_ != nullptr)
+    this->flow_control_pin_->digital_write(false);
+  waiting_for_response = payload[0];
+  ESP_LOGV(TAG, "Modbus write raw: %s", format_hex_pretty(payload).c_str());
+  last_send_ = millis();
 }
 
-// Assume data and length is valid and append CRC, then queue for sending. Used internally to avoid unnecessary copying
-// of data into vectors
-void Modbus::queue_raw_(const uint8_t *data, uint16_t len) {
-  if (this->tx_buffer_.size() < MODBUS_TX_BUFFER_SIZE) {
-    this->tx_buffer_.emplace_back(data, len);
-  } else {
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_ERROR
-    char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
-#endif
-    ESP_LOGE(TAG, "Write buffer full, dropped: %s", format_hex_pretty_to(hex_buf, data, len));
-  }
-}
 
 void Modbus::clear_rx_buffer_(const LogString *reason, bool warn) {
   size_t at = this->rx_buffer_.size();
