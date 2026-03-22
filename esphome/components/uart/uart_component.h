@@ -30,15 +30,22 @@ enum UARTDirection {
 const LogString *parity_to_str(UARTParityOptions parity);
 
 /// Result of a flush() call.
+// Some vendor SDKs (e.g., Realtek) define SUCCESS as a macro.
+// Save and restore around the enum to avoid collisions with our scoped enum value.
+#pragma push_macro("SUCCESS")
+#undef SUCCESS
 enum class FlushResult {
   SUCCESS,          ///< Confirmed: all bytes left the TX FIFO.
   TIMEOUT,          ///< Confirmed: timed out before TX completed.
   FAILED,           ///< Confirmed: driver or hardware error.
   ASSUMED_SUCCESS,  ///< Platform cannot report result; success is assumed.
 };
+#pragma pop_macro("SUCCESS")
 
 class UARTComponent {
  public:
+  static constexpr size_t RX_FULL_THRESHOLD_UNSET = 0;
+
   // Writes an array of bytes to the UART bus.
   // @param data A vector of bytes to be written.
   void write_array(const std::vector<uint8_t> &data) { this->write_array(&data[0], data.size()); }
@@ -191,9 +198,7 @@ class UARTComponent {
 #endif  // USE_ESP8266 || USE_ESP32
 
 #ifdef USE_UART_DEBUGGER
-  void add_debug_callback(std::function<void(UARTDirection, uint8_t)> &&callback) {
-    this->debug_callback_.add(std::move(callback));
-  }
+  template<typename F> void add_debug_callback(F &&callback) { this->debug_callback_.add(std::forward<F>(callback)); }
 #endif
 
  protected:
@@ -205,8 +210,9 @@ class UARTComponent {
   InternalGPIOPin *flow_control_pin_{};
   size_t rx_buffer_size_{};
   size_t tx_buffer_size_;
-  size_t rx_full_threshold_{1};
-  size_t rx_timeout_{0};
+  // ESP32 (both Arduino and ESP-IDF) always sets this at codegen time via set_rx_full_threshold().
+  // Other platforms (USB UART, Arduino, etc.) leave it unset.
+  size_t rx_full_threshold_{RX_FULL_THRESHOLD_UNSET};  size_t rx_timeout_{0};
   uint32_t baud_rate_{0};
   uint8_t stop_bits_{0};
   uint8_t data_bits_{0};

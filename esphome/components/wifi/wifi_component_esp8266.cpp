@@ -92,13 +92,23 @@ bool WiFiComponent::wifi_mode_(optional<bool> sta, optional<bool> ap) {
   return ret;
 }
 bool WiFiComponent::wifi_apply_power_save_() {
+  // ESP8266 sleep types have confusing names — LIGHT_SLEEP_T is the MORE aggressive mode.
+  // SDK enum: NONE_SLEEP_T=0, LIGHT_SLEEP_T=1, MODEM_SLEEP_T=2
+  //   https://github.com/esp8266/Arduino/blob/3.1.2/tools/sdk/include/user_interface.h#L447-L451
+  // Arduino ESP32 compat confirms: WIFI_PS_MIN_MODEM=MODEM_SLEEP, WIFI_PS_MAX_MODEM=LIGHT_SLEEP
+  //   https://github.com/esp8266/Arduino/blob/3.1.2/libraries/ESP8266WiFi/src/ESP8266WiFiType.h#L53-L55
   sleep_type_t power_save;
   switch (this->power_save_) {
     case WIFI_POWER_SAVE_LIGHT:
-      power_save = LIGHT_SLEEP_T;
+      // MODEM_SLEEP_T: only the WiFi modem sleeps between DTIM beacons, CPU stays active.
+      // Matches ESP32's WIFI_PS_MIN_MODEM.
+      power_save = MODEM_SLEEP_T;
       break;
     case WIFI_POWER_SAVE_HIGH:
-      power_save = MODEM_SLEEP_T;
+      // LIGHT_SLEEP_T: both WiFi modem AND CPU suspend between DTIM beacons.
+      // Most aggressive — prevents TCP processing during sleep. Matches ESP32's WIFI_PS_MAX_MODEM.
+      // See https://github.com/esphome/esphome/issues/14999
+      power_save = LIGHT_SLEEP_T;
       break;
     case WIFI_POWER_SAVE_NONE:
     default:
@@ -638,8 +648,6 @@ WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
   return WiFiSTAConnectStatus::IDLE;
 }
 bool WiFiComponent::wifi_scan_start_(bool passive) {
-  static bool first_scan = false;
-
   // enable STA
   if (!this->wifi_mode_(true, {}))
     return false;
@@ -656,23 +664,13 @@ bool WiFiComponent::wifi_scan_start_(bool passive) {
   config.show_hidden = 1;
 #if USE_ARDUINO_VERSION_CODE >= VERSION_CODE(2, 4, 0)
   config.scan_type = passive ? WIFI_SCAN_TYPE_PASSIVE : WIFI_SCAN_TYPE_ACTIVE;
-  if (first_scan) {
-    if (passive) {
-      config.scan_time.passive = 200;
-    } else {
-      config.scan_time.active.min = 100;
-      config.scan_time.active.max = 200;
-    }
+  if (passive) {
+    config.scan_time.passive = 500;
   } else {
-    if (passive) {
-      config.scan_time.passive = 500;
-    } else {
-      config.scan_time.active.min = 400;
-      config.scan_time.active.max = 500;
-    }
+    config.scan_time.active.min = 400;
+    config.scan_time.active.max = 500;
   }
 #endif
-  first_scan = false;
   bool ret = wifi_station_scan(&config, &WiFiComponent::s_wifi_scan_done_callback);
   if (!ret) {
     ESP_LOGV(TAG, "wifi_station_scan failed");
@@ -737,7 +735,7 @@ void WiFiComponent::wifi_scan_done_callback_(void *arg, STATUS status) {
     }
   }
   ESP_LOGV(TAG, "Scan complete: %zu found, %zu stored%s", total, this->scan_result_.size(),
-           needs_full ? "" : " (filtered)");
+           needs_full ? LOG_STR_LITERAL("") : LOG_STR_LITERAL(" (filtered)"));
   this->scan_done_ = true;
 #ifdef USE_WIFI_SCAN_RESULTS_LISTENERS
   this->pending_.scan_complete = true;  // Defer listener callbacks to main loop
