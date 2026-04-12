@@ -35,6 +35,36 @@ struct CdcEps {
   uint8_t interrupt_interface_number;
 };
 
+enum CH34xChipType : uint8_t {
+  CHIP_CH342F = 0,
+  CHIP_CH342K,
+  CHIP_CH343GP,
+  CHIP_CH343G_AUTOBAUD,
+  CHIP_CH343K,
+  CHIP_CH343J,
+  CHIP_CH344L,
+  CHIP_CH344L_V2,
+  CHIP_CH344Q,
+  CHIP_CH347TF,
+  CHIP_CH9101UH,
+  CHIP_CH9101RY,
+  CHIP_CH9102F,
+  CHIP_CH9102X,
+  CHIP_CH9103M,
+  CHIP_CH9104L,
+  CHIP_CH340B,
+  CHIP_CH339W,
+  CHIP_CH9111L_M0,
+  CHIP_CH9111L_M1,
+  CHIP_CH9114L,
+  CHIP_CH9114W,
+  CHIP_CH9114F,
+  CHIP_CH346C_M0,
+  CHIP_CH346C_M1,
+  CHIP_CH346C_M2,
+  CHIP_UNKNOWN = 0xFF,
+};
+
 enum UARTParityOptions {
   UART_CONFIG_PARITY_NONE = 0,
   UART_CONFIG_PARITY_ODD,
@@ -110,7 +140,8 @@ class USBUartChannel : public uart::UARTComponent, public Parented<USBUartCompon
   bool peek_byte(uint8_t *data) override;
   bool read_array(uint8_t *data, size_t len) override;
   size_t available() override { return this->input_buffer_.get_available(); }
-  uart::FlushResult flush() override;
+  bool is_connected() override { return this->initialised_.load(); }
+  uart::UARTFlushResult flush() override;
   void check_logger_conflict() override {}
   void set_parity(UARTParityOptions parity) { this->parity_ = parity; }
   void set_debug(bool debug) { this->debug_ = debug; }
@@ -128,7 +159,10 @@ class USBUartChannel : public uart::UARTComponent, public Parented<USBUartCompon
   // Larger structures first (8+ bytes)
   RingBuffer input_buffer_;
   LockFreeQueue<UsbOutputChunk, USB_OUTPUT_CHUNK_COUNT> output_queue_;
-  EventPool<UsbOutputChunk, USB_OUTPUT_CHUNK_COUNT> output_pool_;
+  // Pool sized to queue capacity (SIZE-1) because LockFreeQueue<T,N> is a ring
+  // buffer that holds N-1 elements. This guarantees allocate() returns nullptr
+  // before push() can fail, preventing a pool slot leak.
+  EventPool<UsbOutputChunk, USB_OUTPUT_CHUNK_COUNT - 1> output_pool_;
   std::function<void()> rx_callback_{};
   CdcEps cdc_dev_{};
   StringRef debug_prefix_{};
@@ -160,7 +194,8 @@ class USBUartComponent : public usb_host::USBClient {
   // Lock-free data transfer from USB task to main loop
   static constexpr int USB_DATA_QUEUE_SIZE = 32;
   LockFreeQueue<UsbDataChunk, USB_DATA_QUEUE_SIZE> usb_data_queue_;
-  EventPool<UsbDataChunk, USB_DATA_QUEUE_SIZE> chunk_pool_;
+  // Pool sized to queue capacity (SIZE-1) — see USBUartChannel::output_pool_ comment.
+  EventPool<UsbDataChunk, USB_DATA_QUEUE_SIZE - 1> chunk_pool_;
 
  protected:
   std::vector<USBUartChannel *> channels_{};
@@ -192,10 +227,17 @@ class USBUartTypeCP210X : public USBUartTypeCdcAcm {
 class USBUartTypeCH34X : public USBUartTypeCdcAcm {
  public:
   USBUartTypeCH34X(uint16_t vid, uint16_t pid) : USBUartTypeCdcAcm(vid, pid) {}
+  void dump_config() override;
 
  protected:
   void enable_channels() override;
   std::vector<CdcEps> parse_descriptors(usb_device_handle_t dev_hdl) override;
+
+ private:
+  void apply_line_settings_();
+  CH34xChipType chiptype_{CHIP_UNKNOWN};
+  const char *chip_name_{"unknown"};
+  uint8_t num_ports_{1};
 };
 
 }  // namespace esphome::usb_uart
