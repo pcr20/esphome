@@ -27,6 +27,7 @@ from esphome.const import (
     CONF_SEQUENCE,
     CONF_TIMEOUT,
     CONF_TRIGGER_ID,
+    CONF_TX_BUFFER_SIZE,    
     CONF_TX_PIN,
     CONF_UART_ID,
     PLATFORM_HOST,
@@ -261,6 +262,7 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_PORT): cv.All(validate_port, cv.only_on(PLATFORM_HOST)),
             cv.Optional(CONF_RX_BUFFER_SIZE, default=256): cv.validate_bytes,
+            cv.Optional(CONF_TX_BUFFER_SIZE, default=128): cv.validate_bytes,            
             cv.Optional(CONF_RX_FULL_THRESHOLD): cv.All(
                 cv.only_on_esp32, cv.validate_bytes, cv.int_range(min=1, max=120)
             ),
@@ -334,6 +336,7 @@ async def to_code(config):
     if CONF_PORT in config:
         cg.add(var.set_name(config[CONF_PORT]))
     cg.add(var.set_rx_buffer_size(config[CONF_RX_BUFFER_SIZE]))
+    cg.add(var.set_tx_buffer_size(config[CONF_TX_BUFFER_SIZE]))    
     if CORE.is_esp32:
         if CONF_RX_FULL_THRESHOLD not in config:
             # Calculate rx_full_threshold to be 10ms

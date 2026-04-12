@@ -224,10 +224,17 @@ class SensorItem {
   uint32_t bitmask{0};
   uint8_t offset{0};
   uint8_t register_count{0};
+  uint8_t address_in;
+  bool is_response_in;
+  uint8_t function_code_in;
+  uint16_t start_reg_in;
+  uint16_t num_reg_in;
+  uint16_t crc_in;
   uint8_t response_bytes{0};
   uint16_t skip_updates{0};
   std::vector<uint8_t> custom_data{};
   bool force_new_range{false};
+  std::vector<uint16_t> * glo_registers_;
 };
 
 struct ServerCourtesyResponse {
@@ -304,6 +311,7 @@ class ServerRegister {
   uint8_t register_count{0};
   ReadLambda read_lambda;
   WriteLambda write_lambda;
+  std::vector<uint16_t> * glo_registers_;
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
@@ -480,7 +488,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   /// Registers a server register with the controller. Called by esphomes code generator
   void add_server_register(ServerRegister *server_register) { server_registers_.push_back(server_register); }
   /// called when a modbus response was parsed without errors
-  void on_modbus_data(const std::vector<uint8_t> &data) override;
+  void on_modbus_data(const std::vector<uint8_t> &data);
+  void on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data);
   /// called when a modbus error response was received
   void on_modbus_error(uint8_t function_code, uint8_t exception_code) override;
   /// called when a modbus request (function code 0x03 or 0x04) was parsed without errors

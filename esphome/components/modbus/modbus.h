@@ -59,6 +59,7 @@ class Modbus : public uart::UARTDevice, public Component {
   void set_send_wait_time(uint16_t time_in_ms) { this->send_wait_time_ = time_in_ms; }
   void set_turnaround_time(uint16_t time_in_ms) { this->turnaround_delay_ms_ = time_in_ms; }
   void set_disable_crc(bool disable_crc) { this->disable_crc_ = disable_crc; }
+  void set_disable_send(bool disable_send) { this->disable_send_ = disable_send; }
 
   ModbusRole role;
 
@@ -78,6 +79,7 @@ class Modbus : public uart::UARTDevice, public Component {
   uint16_t turnaround_delay_ms_{100};
   uint8_t waiting_for_response_{0};
   bool disable_crc_{false};
+  bool disable_send_{false};
 
   GPIOPin *flow_control_pin_{nullptr};
 

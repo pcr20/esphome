@@ -293,18 +293,19 @@ void Modbus::send_next_frame_() {
   if (this->role == ModbusRole::CLIENT) {
     this->waiting_for_response_ = frame.data.get()[0];
   }
-
-  if (this->flow_control_pin_ != nullptr) {
-    this->flow_control_pin_->digital_write(true);
-    this->write_array(frame.data.get(), frame.size);
-    this->flush();
-    this->flow_control_pin_->digital_write(false);
-    this->last_send_tx_offset_ = 0;
-  } else {
-    this->write_array(frame.data.get(), frame.size);
-    this->last_send_tx_offset_ = frame.size * MODBUS_BITS_PER_CHAR * MS_PER_SEC / this->parent_->get_baud_rate() + 1;
-  }
-
+  if (not this->disable_send_)
+  {
+   if (this->flow_control_pin_ != nullptr) {
+     this->flow_control_pin_->digital_write(true);
+     this->write_array(frame.data.get(), frame.size);
+     this->flush();
+     this->flow_control_pin_->digital_write(false);
+     this->last_send_tx_offset_ = 0;
+   } else {
+     this->write_array(frame.data.get(), frame.size);
+     this->last_send_tx_offset_ = frame.size * MODBUS_BITS_PER_CHAR * MS_PER_SEC / this->parent_->get_baud_rate() + 1;
+   }
+}
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   char hex_buf[format_hex_pretty_size(MODBUS_MAX_LOG_BYTES)];
 #endif
