@@ -21,6 +21,7 @@ CONF_ROLE = "role"
 CONF_MODBUS_ID = "modbus_id"
 CONF_SEND_WAIT_TIME = "send_wait_time"
 CONF_TURNAROUND_TIME = "turnaround_time"
+CONF_DISABLE_SEND = "disable_send"
 
 ModbusRole = modbus_ns.enum("ModbusRole")
 MODBUS_ROLES = {
