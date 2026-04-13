@@ -60,7 +60,8 @@ class Modbus : public uart::UARTDevice, public Component {
   void set_turnaround_time(uint16_t time_in_ms) { this->turnaround_delay_ms_ = time_in_ms; }
   void set_disable_crc(bool disable_crc) { this->disable_crc_ = disable_crc; }
   void set_disable_send(bool disable_send) { this->disable_send_ = disable_send; }
-
+  bool get_disable_send() const { return this->disable_send_; }
+  
   ModbusRole role;
 
  protected:

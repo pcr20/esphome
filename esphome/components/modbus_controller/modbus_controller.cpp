@@ -58,7 +58,8 @@ bool ModbusController::send_next_command_() {
 }
 
 void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t function_code, uint16_t start_address,uint16_t number_of_registers,uint16_t crc,const std::vector<uint8_t> &data) {
-
+  if (this->parent_->get_disable_send())
+  {
     static uint16_t staticcounter=0;
       update_range_(register_ranges_.front());
       send_next_command_();
@@ -87,7 +88,7 @@ void ModbusController::on_modbus_data(bool is_response,uint8_t address,uint8_t f
     
     
     
-  
+  }
   on_modbus_data(data);
   }
 
@@ -390,7 +391,7 @@ void ModbusController::update() {
 
   for (auto &r : this->register_ranges_) {
     ESP_LOGVV(TAG, "Updating range 0x%X", r.start_address);
-    update_range_(r);
+    if (not this->parent_->get_disable_send()) update_range_(r);
   }
 }
 
