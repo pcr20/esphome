@@ -303,7 +303,7 @@ void IDFUARTComponent::set_rx_timeout(size_t rx_timeout) {
 void IDFUARTComponent::write_array(const uint8_t *data, size_t len) {
   int32_t write_len = uart_write_bytes(this->uart_num_, data, len);
   if (write_len != (int32_t) len) {
-    ESP_LOGW(TAG, "uart_write_bytes failed: %d != %zu", write_len, len);
+    ESP_LOGW(TAG, "uart_write_bytes failed: %" PRId32 " != %zu", write_len, len);
     this->mark_failed();
   }
 #ifdef USE_UART_DEBUGGER
@@ -369,15 +369,15 @@ size_t IDFUARTComponent::available() {
   return available;
 }
 
-FlushResult IDFUARTComponent::flush() {
+UARTFlushResult IDFUARTComponent::flush() {
   ESP_LOGVV(TAG, "    Flushing");
   TickType_t ticks = this->flush_timeout_ms_ == 0 ? portMAX_DELAY : pdMS_TO_TICKS(this->flush_timeout_ms_);
   esp_err_t err = uart_wait_tx_done(this->uart_num_, ticks);
   if (err == ESP_OK)
-    return FlushResult::SUCCESS;
+    return UARTFlushResult::UART_FLUSH_RESULT_SUCCESS;
   if (err == ESP_ERR_TIMEOUT)
-    return FlushResult::TIMEOUT;
-  return FlushResult::FAILED;
+    return UARTFlushResult::UART_FLUSH_RESULT_TIMEOUT;
+  return UARTFlushResult::UART_FLUSH_RESULT_FAILED;
 }
 
 void IDFUARTComponent::check_logger_conflict() {}

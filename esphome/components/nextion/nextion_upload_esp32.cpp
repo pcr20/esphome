@@ -14,10 +14,17 @@
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
 
-namespace esphome {
-namespace nextion {
+namespace esphome::nextion {
+
 static const char *const TAG = "nextion.upload.esp32";
 static constexpr size_t NEXTION_MAX_RESPONSE_LOG_BYTES = 16;
+
+// Timeout for display acknowledgment during TFT upload (ms).
+// A single value is used for all chunks; the happy path returns as soon as
+// 0x05/0x08 arrives, so this only bounds failed-detection latency. Field
+// reports showed the previous 500ms steady-state value was too tight for
+// some firmware variants.
+static constexpr uint32_t NEXTION_UPLOAD_ACK_TIMEOUT_MS = 5000;
 
 // Followed guide
 // https://unofficialnextion.com/t/nextion-upload-protocol-v1-2-the-fast-one/1044/2
@@ -96,7 +103,7 @@ int Nextion::upload_by_chunks_(esp_http_client_handle_t http_client, uint32_t &r
       recv_string.clear();
       this->write_array(buffer, buffer_size);
       App.feed_wdt();
-      this->recv_ret_string_(recv_string, upload_first_chunk_sent_ ? 500 : 5000, true);
+      this->recv_ret_string_(recv_string, NEXTION_UPLOAD_ACK_TIMEOUT_MS, true);
       this->content_length_ -= read_len;
       const float upload_percentage = 100.0f * (this->tft_size_ - this->content_length_) / this->tft_size_;
 #ifdef USE_PSRAM
@@ -109,7 +116,7 @@ int Nextion::upload_by_chunks_(esp_http_client_handle_t http_client, uint32_t &r
 #endif
       upload_first_chunk_sent_ = true;
       if (recv_string.empty()) {
-        ESP_LOGW(TAG, "No response from display during upload");
+        ESP_LOGW(TAG, "No response from display after %" PRIu32 "ms", NEXTION_UPLOAD_ACK_TIMEOUT_MS);
         allocator.deallocate(buffer, 4096);
         buffer = nullptr;
         return -1;
@@ -344,8 +351,7 @@ bool Nextion::upload_tft(uint32_t baud_rate, bool exit_reparse) {
   return this->upload_end_(true);
 }
 
-}  // namespace nextion
-}  // namespace esphome
+}  // namespace esphome::nextion
 
 #endif  // USE_ESP32
 #endif  // USE_NEXTION_TFT_UPLOAD

@@ -266,8 +266,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_WAKEUP_PIN): validate_wakeup_pin,
             cv.Optional(CONF_WAKEUP_PIN_MODE): cv.All(
                 cv.only_on([PLATFORM_ESP32, PLATFORM_BK72XX]),
-                cv.enum(WAKEUP_PIN_MODES),
-                upper=True,
+                cv.enum(WAKEUP_PIN_MODES, upper=True),
             ),
             cv.Optional(CONF_ESP32_EXT1_WAKEUP): cv.All(
                 cv.only_on_esp32,
@@ -414,7 +413,7 @@ async def deep_sleep_enter_to_code(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, paren)
     if CONF_SLEEP_DURATION in config:
-        template_ = await cg.templatable(config[CONF_SLEEP_DURATION], args, cg.int32)
+        template_ = await cg.templatable(config[CONF_SLEEP_DURATION], args, cg.uint32)
         cg.add(var.set_sleep_duration(template_))
 
     if CONF_UNTIL in config:

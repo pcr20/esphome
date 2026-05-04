@@ -1,3 +1,4 @@
+import errno
 from importlib import resources
 import logging
 
@@ -74,6 +75,12 @@ def _load_tzdata(iana_key: str) -> bytes | None:
         return (resources.files(package) / resource).read_bytes()
     except (FileNotFoundError, ModuleNotFoundError, IsADirectoryError):
         return None
+    except OSError as e:
+        # Windows raises EINVAL for paths with NTFS-illegal chars (e.g. '<'/'>'
+        # in POSIX TZ strings like "<+08>-8" that validate_tz feeds back here).
+        if e.errno == errno.EINVAL:
+            return None
+        raise
 
 
 def _extract_tz_string(tzfile: bytes) -> str:
@@ -123,8 +130,8 @@ def _parse_cron_part(part, min_value, max_value, special_mapping):
                 f"Can't have more than two '/' in one time expression, got {part}"
             )
         offset, repeat = data
-        offset_n = 0
-        if offset:
+        offset_n = min_value
+        if offset and offset not in ("*", "?"):
             offset_n = _parse_cron_int(
                 offset,
                 special_mapping,
