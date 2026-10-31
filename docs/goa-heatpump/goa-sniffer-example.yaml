@@ -1,0 +1,128 @@
+# Example: passive monitor for the Goa heat pump RS-485 bus (see bus-map.md).
+# Register indexes below are the [n] positions in the bus-map tables.
+esphome:
+  name: goa-sniffer-example
+
+esp32:
+  board: esp32dev
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: github://pcr20/esphome@modbus_sniffer_v2
+    components: [modbus_sniffer]
+
+uart:
+  id: uart_modbus
+  rx_pin: GPIO16
+  tx_pin: GPIO17
+  baud_rate: 9600
+  # A 189-byte broadcast must fit while the main loop is busy (Wi-Fi, API).
+  rx_buffer_size: 1024
+
+modbus_sniffer:
+  id: goa
+  uart_id: uart_modbus
+  log_frames: false
+  # Every block on the bus, from every address, also reaches automations.
+  on_block:
+    - lambda: |-
+        ESP_LOGV("goa", "block 0x%02X fc 0x%02X 0x%04X: %u regs", address, function, start, registers.size());
+
+sensor:
+  # Live status block, broadcast by the main board every ~1.8 s.
+  - platform: modbus_sniffer
+    name: "T01 suction temp"
+    address: 0
+    block: 0x07d1
+    index: 44
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  - platform: modbus_sniffer
+    name: "T02 inlet water temp"
+    address: 0
+    block: 0x07d1
+    index: 45
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  - platform: modbus_sniffer
+    name: "T03 outlet water temp"
+    address: 0
+    block: 0x07d1
+    index: 46
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  - platform: modbus_sniffer
+    name: "T05 ambient temp"
+    address: 0
+    block: 0x07d1
+    index: 48
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  - platform: modbus_sniffer
+    name: "O07 compressor frequency"
+    address: 0
+    block: 0x07d1
+    index: 20
+    unit_of_measurement: "Hz"
+  # Parameters block: broadcast after a change on the display.
+  - platform: modbus_sniffer
+    name: "R02 heating setpoint"
+    address: 0
+    block: 0x0443
+    index: 45
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  # Display status block: the display's reply to the master's poll (function 0x03).
+  - platform: modbus_sniffer
+    name: "Display clock hour"
+    address: 1
+    block: 0x0bb9
+    index: 14
+    value_type: BCD
+  - platform: modbus_sniffer
+    name: "Display change flag"
+    address: 1
+    block: 0x0bb9
+    index: 10
+
+binary_sensor:
+  - platform: modbus_sniffer
+    name: "Heat pump on"
+    address: 0
+    block: 0x07d1
+    index: 10
+
+text_sensor:
+  # Whole blocks as hex (4 digits per register), for logging and reverse engineering.
+  - platform: modbus_sniffer
+    name: "Block 0x03e9 hex"
+    address: 0
+    block: 0x03e9
+  - platform: modbus_sniffer
+    name: "Block 0x0443 hex"
+    address: 0
+    block: 0x0443
+  - platform: modbus_sniffer
+    name: "Serial"
+    address: 0
+    block: 0x07d1
+    index: 0
+    count: 6
+    format: ASCII
