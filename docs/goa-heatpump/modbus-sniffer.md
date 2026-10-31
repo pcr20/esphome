@@ -74,7 +74,8 @@ All platforms locate a register the same way:
 - `text_sensor`: `format: HEX` (default; 4 lowercase hex digits per register, the same layout as
   `modbus_controller`'s `HEXBYTES`, so existing `substr(4 * n, 4)` lambdas keep working) or
   `ASCII`; `count` registers from `index` (0 = to the end of the block). Publishes only when the
-  text changes.
+  text changes. Home Assistant rejects states longer than 255 characters, so keep HEX sensors to
+  at most 63 registers and split a 90-register block into two (`count: 60`, then `index: 60`).
 
 ## Migrating from the `dev_uart_update` fork
 

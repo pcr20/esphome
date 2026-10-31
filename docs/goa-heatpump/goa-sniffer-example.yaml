@@ -110,15 +110,28 @@ binary_sensor:
     index: 10
 
 text_sensor:
-  # Whole blocks as hex (4 digits per register), for logging and reverse engineering.
+  # Blocks as hex (4 digits per register), for logging and reverse engineering.
+  # Home Assistant rejects states over 255 characters, so a 90-register block is split.
   - platform: modbus_sniffer
-    name: "Block 0x03e9 hex"
+    name: "Block 0x03e9 hex 0-59"
     address: 0
     block: 0x03e9
+    count: 60
   - platform: modbus_sniffer
-    name: "Block 0x0443 hex"
+    name: "Block 0x03e9 hex 60-89"
+    address: 0
+    block: 0x03e9
+    index: 60
+  - platform: modbus_sniffer
+    name: "Block 0x0443 hex 0-59"
     address: 0
     block: 0x0443
+    count: 60
+  - platform: modbus_sniffer
+    name: "Block 0x0443 hex 60-89"
+    address: 0
+    block: 0x0443
+    index: 60
   - platform: modbus_sniffer
     name: "Serial"
     address: 0
