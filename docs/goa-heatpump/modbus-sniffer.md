@@ -71,7 +71,7 @@ Checked with a Python port of the parser (`tools/sniffer_check.py`):
 | `uart_id` | | UART to listen on; only RX is needed. |
 | `resync_timeout` | `50ms` | Quiet time after which an incomplete buffered frame is dropped. |
 | `log_frames` | `false` | Log every frame (hex, 32 bytes per line) at DEBUG. |
-| `stats_interval` | `60s` | Log a summary at INFO (bytes, % in valid frames, CRC errors, unknown frames, UART buffer peak), and per-address / per-block counters at DEBUG; `0s` disables. The same counters and the address/block inventory are part of the config dump, which is logged again whenever a log client connects. |
+| `stats_interval` | `60s` | Log a summary at INFO (bytes, % in valid frames, CRC errors, unknown frames, UART buffer peak), and per-address / per-block counters at DEBUG; `0s` disables. The same counters and the address/block inventory are part of the config dump, which is logged again whenever a log client connects, but only with `logger: level: CONFIG` or more verbose. |
 | `on_block` | | Automation run for every block update, with `address`, `function`, `start`, `registers` (`std::vector<uint16_t>`). |
 | `on_frame` | | Automation run for every valid frame, with `frame` (`std::vector<uint8_t>`, including CRC). |
 
