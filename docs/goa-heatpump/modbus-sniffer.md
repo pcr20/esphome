@@ -37,9 +37,32 @@ modbus_sniffer:
   place. Writes (0x10, 0x06) are keyed by the address written to; read replies (0x03, 0x04) by the
   replying slave and the request's start address.
 
-Checked against the IO Ninja captures with a Python port of the parser
-(`tools/sniffer_check.py`): all 4 906 frames of the turn-on capture, 0 skipped bytes, every block
-image's register [9] equal to its own start address.
+- **Every skipped byte is accounted for.** When a run of skipped bytes ends (a valid frame follows,
+  or the bus goes quiet), it is classified:
+  - If it splits exactly into frames with valid CRCs, those are **unknown frames**: a function code
+    or length the parser does not handle. Each is logged at INFO with its hex and counted.
+  - Otherwise it is walked frame by frame. Each header whose address and function code have already
+    been seen together in a valid frame starts a presumed frame of the length its header implies.
+    Each presumed frame counts as a **CRC error**, including frames that were cut short by lost bytes.
+    A run with no such header is noise.
+- **Lost bytes.** The ESP-IDF UART driver drops bytes silently when its buffer is full. The sniffer
+  records the most bytes ever waiting in the buffer (`rx_buffer_peak`), and warns once it reaches
+  75% of `rx_buffer_size`. A peak well below the buffer size means no bytes were lost before the
+  sniffer read them.
+
+Checked with a Python port of the parser (`tools/sniffer_check.py`):
+- **Turn-on capture:** all 4 906 frames, 0 skipped bytes, and every block image's register [9]
+  equal to its own start address.
+- **`--selftest`:** damages that capture in known ways and expects the counts to match exactly. It
+  flips bits in 69 frames, drops bytes from 69, inserts 204 unknown-function frames and adds 68 runs
+  of noise. Valid frames, CRC errors, unknown frames, noise runs and the byte totals all match.
+- **Second capture (`log 100ms timeout.txt`):** the 24 408 skipped bytes are 7 bad runs, with no
+  unknown frames:
+  - 5 short runs, each one damaged frame.
+  - 2 long runs (15 202 and 8 580 bytes) with correct frame lengths but the top bit of most bytes
+    cleared. The capture PC's port evidently ran with 7 data bits for a while.
+  - The parser counts 211 CRC errors there, against 248 frames counted by hand. It undercounts the
+    7-bit stretch because the stripped length bytes mislead the walk.
 
 ## Hub options
 
@@ -48,7 +71,7 @@ image's register [9] equal to its own start address.
 | `uart_id` | | UART to listen on; only RX is needed. |
 | `resync_timeout` | `50ms` | Quiet time after which an incomplete buffered frame is dropped. |
 | `log_frames` | `false` | Log every frame (hex, 32 bytes per line) at DEBUG. |
-| `stats_interval` | `60s` | Log frame / per-address / per-block counters at DEBUG; `0s` disables. |
+| `stats_interval` | `60s` | Log a summary at INFO (bytes, % in valid frames, CRC errors, unknown frames, UART buffer peak), and per-address / per-block counters at DEBUG; `0s` disables. The same counters and the address/block inventory are part of the config dump, which is logged again whenever a log client connects. |
 | `on_block` | | Automation run for every block update, with `address`, `function`, `start`, `registers` (`std::vector<uint16_t>`). |
 | `on_frame` | | Automation run for every valid frame, with `frame` (`std::vector<uint8_t>`, including CRC). |
 
@@ -70,6 +93,32 @@ All platforms locate a register the same way:
   `S_DWORD_R`, `FP32`, `FP32_R`, `BCD` (each nibble a decimal digit, e.g. the display clock), or
   `bitmask` to publish `register & mask`. Scale with filters (`multiply: 0.1`). Publishes on every
   block update; add `delta`/`throttle` filters to reduce traffic.
+- `sensor` with `statistic:` instead of `address`/`block`: one of the sniffer's own counters, published
+  every `update_interval` (default `60s`) as a diagnostic entity. The available statistics are:
+  - `rx_bytes`
+  - `frames`
+  - `skipped_bytes`
+  - `crc_errors`
+  - `unknown_frames`
+  - `orphan_replies`
+  - `rx_buffer_peak`
+  - `requests`, `replies`, `unanswered` and `exceptions`, which take an optional `address`; without
+    it they sum over all addresses.
+
+  Counters are `total_increasing` and restart at 0 on reboot; `rx_buffer_peak` is a measurement.
+  They are floats in Home Assistant, so `rx_bytes` stops being exact past 16.7 M (about 5 hours on
+  the Goa bus).
+
+  ```yaml
+  sensor:
+    - platform: modbus_sniffer
+      statistic: crc_errors
+      name: Modbus CRC errors
+    - platform: modbus_sniffer
+      statistic: unanswered
+      address: 1
+      name: Modbus unanswered display polls
+  ```
 - `binary_sensor`: `bitmask` (default `0xFFFF`); on when `register & bitmask` is non-zero.
 - `text_sensor`: `format: HEX` (default; 4 lowercase hex digits per register, the same layout as
   `modbus_controller`'s `HEXBYTES`, so existing `substr(4 * n, 4)` lambdas keep working) or

@@ -30,4 +30,19 @@ class ModbusSnifferSensor : public sensor::Sensor, public BlockListener {
   uint32_t bitmask_{0};
 };
 
+/// Publishes one of the sniffer's own counters every update_interval.
+class ModbusSnifferStatisticSensor : public sensor::Sensor, public PollingComponent {
+ public:
+  void set_parent(ModbusSniffer *parent) { this->parent_ = parent; }
+  void set_statistic(Statistic statistic) { this->statistic_ = statistic; }
+  void set_address(uint8_t address) { this->address_ = address; }
+  void update() override { this->publish_state(this->parent_->get_statistic(this->statistic_, this->address_)); }
+  void dump_config() override;
+
+ protected:
+  ModbusSniffer *parent_{nullptr};
+  Statistic statistic_{Statistic::FRAMES};
+  int16_t address_{-1};
+};
+
 }  // namespace esphome::modbus_sniffer

@@ -24,9 +24,49 @@ static constexpr uint8_t FC_WRITE_MULTIPLE_REGISTERS = 0x10;
 /// Bytes per frame logged on one line.
 static constexpr size_t LOG_CHUNK = 32;
 
+/// Warn once the UART buffer has been this full (percent): beyond it, bytes may be dropped unseen.
+static constexpr size_t RX_BUFFER_WARN_PERCENT = 75;
+
 static bool crc_ok(const uint8_t *frame, size_t len) {
   uint16_t crc = crc16(frame, len - 2);
   return crc == (frame[len - 2] | (frame[len - 1] << 8));
+}
+
+/// Bit for a known function code in AddressStats::functions, or 0 for an unknown one.
+static uint8_t function_bit(uint8_t base) {
+  if (base >= FC_READ_COILS && base <= FC_WRITE_SINGLE_REGISTER)
+    return 1 << (base - FC_READ_COILS);
+  if (base == FC_WRITE_MULTIPLE_COILS)
+    return 1 << 6;
+  if (base == FC_WRITE_MULTIPLE_REGISTERS)
+    return 1 << 7;
+  return 0;
+}
+
+/// Length of the shortest CRC-valid frame (address <= 247) at the start of @p data, or 0 if there is none.
+static size_t crc_frame_length(const uint8_t *data, size_t size) {
+  if (size < 4 || data[0] > MAX_ADDRESS)
+    return 0;
+  const size_t limit = std::min(size, MAX_FRAME_LENGTH);
+  uint16_t crc = crc16(data, 2);  // CRC of data[0, len - 2)
+  for (size_t len = 4; len <= limit; len++) {
+    if (crc == (data[len - 2] | (data[len - 1] << 8)))
+      return len;
+    crc = crc16(data + len - 2, 1, crc);
+  }
+  return 0;
+}
+
+/// Number of CRC-valid frames that exactly make up @p data, or 0 if it does not split into whole frames.
+static size_t split_crc_frames(const uint8_t *data, size_t size) {
+  size_t count = 0;
+  for (size_t offset = 0; offset < size; count++) {
+    size_t len = crc_frame_length(data + offset, size - offset);
+    if (len == 0)
+      return 0;
+    offset += len;
+  }
+  return count;
 }
 
 size_t value_type_words(ValueType type) {
@@ -93,6 +133,7 @@ bool decode_value(const std::vector<uint16_t> &registers, size_t index, ValueTyp
 
 void ModbusSniffer::setup() {
   this->buffer_.reserve(2 * MAX_FRAME_LENGTH);
+  this->run_buf_.reserve(2 * MAX_FRAME_LENGTH);
   if (this->stats_interval_ > 0)
     this->set_interval("stats", this->stats_interval_, [this]() { this->log_stats_(); });
 }
@@ -100,6 +141,17 @@ void ModbusSniffer::setup() {
 void ModbusSniffer::loop() {
   const uint32_t now = millis();
   size_t avail = this->available();
+  if (avail > this->rx_buffer_peak_) {
+    // The buffer only fills between reads, so its level here is its peak. If it ever fills up, the
+    // UART driver drops bytes without telling anyone; a peak well below its size rules that out.
+    this->rx_buffer_peak_ = avail;
+    const size_t size = this->parent_->get_rx_buffer_size();
+    if (!this->rx_buffer_warned_ && avail * 100 >= size * RX_BUFFER_WARN_PERCENT) {
+      this->rx_buffer_warned_ = true;
+      ESP_LOGW(TAG, "UART buffer reached %u of %u bytes; bytes may be lost. Increase rx_buffer_size",
+               (unsigned) avail, (unsigned) size);
+    }
+  }
   if (avail > 0) {
     uint8_t chunk[64];
     size_t total = 0;
@@ -109,6 +161,7 @@ void ModbusSniffer::loop() {
       if (!this->read_array(chunk, n))
         break;
       this->buffer_.insert(this->buffer_.end(), chunk, chunk + n);
+      this->rx_bytes_ += n;
       total += n;
       avail = this->available();
     }
@@ -126,17 +179,101 @@ void ModbusSniffer::parse_buffer_(bool flush) {
     if (len == 0)
       break;  // need more bytes
     if (len < 0) {
-      this->buffer_.erase(this->buffer_.begin());
-      this->skipped_bytes_++;
-      this->skipped_run_++;
+      this->skip_byte_();
       continue;
     }
-    this->flush_skipped_();
+    this->end_run_();
     this->handle_frame_(this->buffer_.data(), len);
     this->buffer_.erase(this->buffer_.begin(), this->buffer_.begin() + len);
   }
   if (flush)
-    this->flush_skipped_();
+    this->end_run_();  // the bus went quiet, so the run cannot continue
+}
+
+/// Drop the first buffered byte, which starts no valid frame, into the current run of skipped bytes.
+///
+/// Resyncing goes byte by byte, but for the statistics the run is also walked frame by frame: a
+/// plausible header (address, known function code) starts a presumed frame of the length that
+/// header implies, and bytes up to its end belong to it. Each presumed frame is a CRC error.
+void ModbusSniffer::skip_byte_() {
+  if (this->walk_remaining_ > 0) {
+    this->walk_remaining_--;
+  } else {
+    size_t len = this->presumed_length_();
+    if (len > 0) {
+      this->run_frames_++;
+      this->walk_remaining_ = len - 1;
+    }
+  }
+  if (this->run_buf_.size() < 2 * MAX_FRAME_LENGTH)
+    this->run_buf_.push_back(this->buffer_.front());
+  this->run_bytes_++;
+  this->skipped_bytes_++;
+  this->buffer_.erase(this->buffer_.begin());
+}
+
+/// Length of the frame the header at the start of the buffer implies, or 0 if it is not a plausible header.
+size_t ModbusSniffer::presumed_length_() const {
+  const size_t size = this->buffer_.size();
+  const uint8_t *buf = this->buffer_.data();
+  if (size < 2 || buf[0] > MAX_ADDRESS)
+    return 0;
+  const uint8_t fc = buf[1];
+  const uint8_t base = fc & ~EXCEPTION_FLAG;
+  // Only an address and function already seen together in a valid frame make a convincing header;
+  // anything else in a run is more likely data than the start of a frame.
+  const uint8_t bit = function_bit(base);
+  bool seen = false;
+  for (const auto &stats : this->addresses_) {
+    if (stats.address == buf[0]) {
+      seen = (stats.functions & bit) != 0;
+      break;
+    }
+  }
+  if (!seen)
+    return 0;
+  if (fc & EXCEPTION_FLAG)
+    return 5;
+  // Where a request and a reply share a function code, a pending request from this address means a reply.
+  const bool reply = this->pending_.active && this->pending_.address == buf[0] && this->pending_.function == base;
+  size_t len = 8;
+  if (base <= FC_READ_INPUT_REGISTERS) {
+    if (reply && size >= 3)
+      len = 5 + size_t(buf[2]);
+  } else if (base == FC_WRITE_MULTIPLE_COILS || base == FC_WRITE_MULTIPLE_REGISTERS) {
+    if (!reply && size >= 7)
+      len = 9 + size_t(buf[6]);
+  }
+  return std::min(len, MAX_FRAME_LENGTH);
+}
+
+/// Classify the run of skipped bytes that just ended, when a valid frame follows or the bus goes quiet.
+void ModbusSniffer::end_run_() {
+  if (this->run_bytes_ == 0)
+    return;
+  const uint8_t *run = this->run_buf_.data();
+  const size_t size = this->run_buf_.size();
+  size_t unknown = size == this->run_bytes_ ? split_crc_frames(run, size) : 0;
+  if (unknown > 0) {
+    // Whole frames with valid CRCs that the length rules do not know: an unhandled function code or length.
+    this->unknown_frames_ += unknown;
+    for (size_t offset = 0; offset < size;) {
+      size_t len = crc_frame_length(run + offset, size - offset);
+      this->log_hex_(ESPHOME_LOG_LEVEL_INFO, "Unknown frame", run + offset, len);
+      offset += len;
+    }
+  } else {
+    this->crc_errors_ += this->run_frames_;
+    if (this->run_frames_ == 0)
+      this->noise_runs_++;
+    ESP_LOGD(TAG, "Skipped %" PRIu32 " bytes: %" PRIu32 " frames with CRC errors%s", this->run_bytes_,
+             this->run_frames_, this->walk_remaining_ > 0 ? ", the last cut short" : "");
+    this->log_hex_(ESPHOME_LOG_LEVEL_VERBOSE, "Skipped", run, std::min(size, LOG_CHUNK * 2));
+  }
+  this->run_buf_.clear();
+  this->run_bytes_ = 0;
+  this->run_frames_ = 0;
+  this->walk_remaining_ = 0;
 }
 
 /// Length of the valid frame at the start of the buffer, 0 if more bytes are needed,
@@ -206,6 +343,7 @@ void ModbusSniffer::handle_frame_(const uint8_t *frame, size_t len) {
   const uint8_t base = fc & ~EXCEPTION_FLAG;
   const bool pending_match =
       this->pending_.active && this->pending_.address == address && this->pending_.function == base;
+  this->stats_for_(address).functions |= function_bit(base);
 
   bool reply;
   if (fc & EXCEPTION_FLAG) {
@@ -342,31 +480,91 @@ AddressStats &ModbusSniffer::stats_for_(uint8_t address) {
   return this->addresses_.back();
 }
 
-void ModbusSniffer::flush_skipped_() {
-  if (this->skipped_run_ == 0)
-    return;
-  ESP_LOGD(TAG, "Skipped %" PRIu32 " bytes that do not form a valid frame", this->skipped_run_);
-  this->skipped_run_ = 0;
-}
-
-void ModbusSniffer::log_frame_(const uint8_t *frame, size_t len, const char *kind) {
-  if (!this->log_frames_)
-    return;
+/// Log a frame as hex, 32 bytes per line, at INFO, DEBUG or VERBOSE.
+void ModbusSniffer::log_hex_(int level, const char *kind, const uint8_t *frame, size_t len) {
   char hex[format_hex_pretty_size(LOG_CHUNK)];
   for (size_t offset = 0; offset < len; offset += LOG_CHUNK) {
     size_t n = std::min(LOG_CHUNK, len - offset);
     format_hex_pretty_to(hex, frame + offset, n, ' ');
-    if (offset == 0) {
-      ESP_LOGD(TAG, "%s 0x%02X fc 0x%02X (%u bytes): %s", kind, frame[0], frame[1], (unsigned) len, hex);
+#define SNIFFER_LOG_HEX(log) \
+  if (offset == 0) { \
+    log(TAG, "%s 0x%02X fc 0x%02X (%u bytes): %s", kind, frame[0], len > 1 ? frame[1] : 0, (unsigned) len, hex); \
+  } else { \
+    log(TAG, "  +%03u: %s", (unsigned) offset, hex); \
+  }
+    if (level == ESPHOME_LOG_LEVEL_INFO) {
+      SNIFFER_LOG_HEX(ESP_LOGI)
+    } else if (level == ESPHOME_LOG_LEVEL_DEBUG) {
+      SNIFFER_LOG_HEX(ESP_LOGD)
     } else {
-      ESP_LOGD(TAG, "  +%03u: %s", (unsigned) offset, hex);
+      SNIFFER_LOG_HEX(ESP_LOGV)
     }
+#undef SNIFFER_LOG_HEX
   }
 }
 
+void ModbusSniffer::log_frame_(const uint8_t *frame, size_t len, const char *kind) {
+  if (this->log_frames_)
+    this->log_hex_(ESPHOME_LOG_LEVEL_DEBUG, kind, frame, len);
+}
+
+float ModbusSniffer::get_statistic(Statistic statistic, int16_t address) const {
+  switch (statistic) {
+    case Statistic::RX_BYTES:
+      return this->rx_bytes_;
+    case Statistic::FRAMES:
+      return this->frames_;
+    case Statistic::SKIPPED_BYTES:
+      return this->skipped_bytes_;
+    case Statistic::CRC_ERRORS:
+      return this->crc_errors_;
+    case Statistic::UNKNOWN_FRAMES:
+      return this->unknown_frames_;
+    case Statistic::ORPHAN_REPLIES:
+      return this->orphan_replies_;
+    case Statistic::RX_BUFFER_PEAK:
+      return this->rx_buffer_peak_;
+    default:
+      break;
+  }
+  uint32_t sum = 0;
+  for (const auto &stats : this->addresses_) {
+    if (address >= 0 && stats.address != address)
+      continue;
+    switch (statistic) {
+      case Statistic::REQUESTS:
+        sum += stats.requests;
+        break;
+      case Statistic::REPLIES:
+        sum += stats.replies;
+        break;
+      case Statistic::UNANSWERED:
+        sum += stats.unanswered;
+        break;
+      case Statistic::EXCEPTIONS:
+        sum += stats.exceptions;
+        break;
+      default:
+        break;
+    }
+  }
+  return sum;
+}
+
 void ModbusSniffer::log_stats_() {
-  ESP_LOGD(TAG, "Frames: %" PRIu32 ", skipped bytes: %" PRIu32 ", orphan replies: %" PRIu32, this->frames_,
-           this->skipped_bytes_, this->orphan_replies_);
+  // One INFO line answers "was everything processed": bytes in valid frames out of all bytes received,
+  // and every frame that was not (CRC errors, unknown frames), plus how close the UART buffer came to full.
+  const uint32_t bad = this->crc_errors_ + this->unknown_frames_;
+  const uint64_t settled = this->rx_bytes_ - this->buffer_.size();  // bytes already framed or skipped
+  const float good_bytes =
+      settled > 0 ? 100.0f * float(settled - this->skipped_bytes_) / float(settled) : 100.0f;
+  const float error_rate = this->frames_ + bad > 0 ? 100.0f * float(bad) / float(this->frames_ + bad) : 0.0f;
+  ESP_LOGI(TAG,
+           "%" PRIu64 " bytes, %.3f%% in %" PRIu32 " valid frames; %" PRIu32 " CRC errors, %" PRIu32
+           " unknown frames (%.3f%% of frames), %" PRIu32 " skipped bytes; UART buffer peak %u/%u",
+           this->rx_bytes_, good_bytes, this->frames_, this->crc_errors_, this->unknown_frames_, error_rate,
+           this->skipped_bytes_, (unsigned) this->rx_buffer_peak_, (unsigned) this->parent_->get_rx_buffer_size());
+  ESP_LOGD(TAG, "  Orphan replies: %" PRIu32 ", runs of noise: %" PRIu32, this->orphan_replies_, this->noise_runs_);
   for (const auto &stats : this->addresses_) {
     ESP_LOGD(TAG, "  Address 0x%02X: %" PRIu32 " requests, %" PRIu32 " replies, %" PRIu32 " unanswered, %" PRIu32
              " exceptions",
@@ -389,6 +587,20 @@ void ModbusSniffer::dump_config() {
                 "  Listeners: %u",
                 this->resync_timeout_, YESNO(this->log_frames_), this->stats_interval_,
                 (unsigned) this->listeners_.size());
+  // dump_config runs again whenever a log client connects, so the inventory is not only seen at boot.
+  ESP_LOGCONFIG(TAG,
+                "  Received: %" PRIu64 " bytes, %" PRIu32 " frames, %" PRIu32 " CRC errors, %" PRIu32
+                " unknown frames, %" PRIu32 " skipped bytes, UART buffer peak %u",
+                this->rx_bytes_, this->frames_, this->crc_errors_, this->unknown_frames_, this->skipped_bytes_,
+                (unsigned) this->rx_buffer_peak_);
+  for (const auto &stats : this->addresses_) {
+    ESP_LOGCONFIG(TAG, "  Address 0x%02X: %" PRIu32 " requests, %" PRIu32 " replies, %" PRIu32 " unanswered",
+                  stats.address, stats.requests, stats.replies, stats.unanswered);
+  }
+  for (const auto &block : this->blocks_) {
+    ESP_LOGCONFIG(TAG, "  Block 0x%02X fc 0x%02X start 0x%04X: %u registers, %" PRIu32 " updates", block.address,
+                  block.function, block.start, (unsigned) block.registers.size(), block.updates);
+  }
 }
 
 }  // namespace esphome::modbus_sniffer
